@@ -109,6 +109,18 @@ export function ChatContainer({
               namespace={namespace}
               onSelect={handleSuggestedQuestion}
             />
+            <p className="text-xs text-zinc-500">
+              Like KubeAgentiX CE?{" "}
+              <a
+                href="https://github.com/kubeagentix/kubeagentix-ce"
+                target="_blank"
+                rel="noreferrer"
+                className="text-zinc-300 underline underline-offset-2 hover:text-white transition-colors"
+              >
+                Star it on GitHub
+              </a>
+              .
+            </p>
           </div>
         )}
 

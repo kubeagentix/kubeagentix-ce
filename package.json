@@ -3,6 +3,18 @@
   "version": "0.1.0",
   "private": false,
   "type": "module",
+  "bin": {
+    "kubeagentix-ce": "./bin/kubeagentix-ce.js"
+  },
+  "files": [
+    "bin/**",
+    "dist/**",
+    "public/**",
+    "wasm-core/pkg/**",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
   "pkg": {
     "assets": [
       "dist/spa/*"
@@ -22,6 +34,7 @@
     "docs:build": "pnpm --dir docs-site build",
     "e2e": "playwright test",
     "hooks:install": "git config core.hooksPath .githooks",
+    "prepack": "pnpm build",
     "start": "node dist/server/node-build.mjs",
     "test": "vitest --run",
     "format.fix": "prettier --write .",

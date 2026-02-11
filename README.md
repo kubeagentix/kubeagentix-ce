@@ -21,6 +21,16 @@ KubeAgentiX CE is an open-source Kubernetes diagnostics copilot focused on one c
 
 It helps operators and developers diagnose Kubernetes incidents faster using explainable evidence from cluster data (events, logs, status, metrics) while preserving execution safety with policy-guarded command routing.
 
+## 1-Minute Setup
+
+```bash
+npx kubeagentix-ce@latest
+```
+
+KubeAgentiX CE starts on `http://localhost:4000` by default.
+
+If this project helps you, please star the repo: https://github.com/kubeagentix/kubeagentix-ce
+
 ## Key Features
 
 - Guided Quick Diagnosis (QuickDx) with confidence breakdown and evidence traces.
@@ -61,23 +71,27 @@ flowchart LR
 
 - Node.js 22+
 - pnpm 10+
-- kubectl configured for a reachable cluster context
+- kubectl installed and available on `PATH`
+- kubeconfig/context configured (`~/.kube/config` or `KUBECONFIG`)
 
-### 1-Minute Setup (NPX)
+### Option A: Docker Compose (Secondary)
 
 ```bash
-npx create-kubeagentix-ce@latest
+git clone https://github.com/kubeagentix/kubeagentix-ce.git
 cd kubeagentix-ce
+cp .env.example .env
 docker compose up --build
 ```
 
-You can also pick a custom directory:
+### Optional Bootstrap CLI (Secondary)
+
+If you prefer scaffolding into a local folder first:
 
 ```bash
-npx create-kubeagentix-ce@latest my-kubeagentix
+npx create-kubeagentix-ce@latest
 ```
 
-### Option A: Local Run
+### Option B: Local From Source
 
 ```bash
 git clone https://github.com/kubeagentix/kubeagentix-ce.git
@@ -86,17 +100,6 @@ pnpm install
 cp .env.example .env
 pnpm dev
 ```
-
-### Option B: Docker Compose Run
-
-```bash
-git clone https://github.com/kubeagentix/kubeagentix-ce.git
-cd kubeagentix-ce
-cp .env.example .env
-docker compose up --build
-```
-
-This launches KubeAgentiX CE at `http://localhost:4000` and mounts your local kubeconfig as read-only.
 
 ### Build and Test
 
@@ -119,6 +122,16 @@ See `.env.example` for full set. Typical variables:
 - `VITE_USE_WASM_CORE`
 
 If no LLM keys are set, heuristic fallback paths remain available for core diagnosis/suggestion flows.
+
+## Troubleshooting
+
+- No kubectl found:
+  Install kubectl and ensure it is on `PATH`.
+- No kubeconfig found:
+  Configure cluster access in `~/.kube/config` or set `KUBECONFIG`.
+- Port already in use:
+  Run with a different port:
+  `PORT=4100 npx kubeagentix-ce@latest`
 
 ## Documentation
 
