@@ -20,7 +20,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    environment: github-pages
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,11 +33,6 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: docs-site/pnpm-lock.yaml
-
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Install docs dependencies
         run: pnpm --dir docs-site install --frozen-lockfile
@@ -55,12 +49,18 @@ jobs:
           path: docs-site/build
 
   deploy:
+    if: ${{ vars.ENABLE_GITHUB_PAGES == 'true' }}
     needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
