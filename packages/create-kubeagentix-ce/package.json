@@ -3,9 +3,7 @@
   "version": "0.1.0",
   "description": "Bootstrap KubeAgentiX CE locally in one command",
   "type": "module",
-  "bin": {
-    "create-kubeagentix-ce": "./index.js"
-  },
+  "bin": "./index.js",
   "files": [
     "index.js"
   ],
