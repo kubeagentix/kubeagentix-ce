@@ -33,6 +33,7 @@ jobs:
         with:
           scan-type: fs
           scan-ref: .
+          scanners: 'vuln'
           vuln-type: 'os,library'
           severity: 'HIGH,CRITICAL'
           format: 'table'
@@ -45,7 +46,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Gitleaks scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: zricethezav/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

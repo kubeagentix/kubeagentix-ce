@@ -28,27 +28,30 @@ It helps operators and developers diagnose Kubernetes incidents faster using exp
   - Command mode (direct kubectl execution)
   - Natural Language mode (NL -> safe command suggestion -> edit -> execute)
 - Skill-driven Runbooks for structured remediation workflows.
-- CLI-first broker policy layer (allowlist, guardrails, typed errors, auditability).
+- Broker policy layer (allowlist, guardrails, typed errors, auditability).
 - Browser-first architecture with optional WASM-assisted analysis helpers.
 
-## Why CLI-First
+## Why CLI Tools for Agentic Ops (vs MCP-heavy/custom stacks)
 
-KubeAgentiX CE intentionally uses a CLI-first execution path for Kubernetes operations:
+KubeAgentiX CE is deliberately built around **real CLI tools for agents** (starting with `kubectl`) instead of requiring every capability to be re-implemented as MCP/custom tools.
 
-- Reuses existing kubeconfig/context/plugin ecosystem.
-- Minimizes integration overhead vs building every custom connector from scratch.
-- Makes command policy enforcement explicit and testable.
-- Keeps operator behavior transparent through command previews and execution logs.
+- Reuses existing kubeconfig, contexts, and plugin workflows operators already trust.
+- Lowers integration overhead and maintenance burden for DevOps-heavy environments.
+- Makes command preview + policy gating explicit before execution.
+- Keeps behavior observable with concrete commands and outputs.
+
+MCP/custom tools are still useful where needed, but CLI-first gives a faster and more pragmatic path for Kubernetes operations.
 
 ## Architecture
 
-```text
-React UI (Chat, QuickDx, Runbooks, Terminal)
-  -> Express API
-    -> Command Broker (policy + adapters)
-      -> kubectl (cluster access)
-  -> Optional LLM provider enrichment
-  -> WASM helpers (client-side scoring/normalization)
+```mermaid
+flowchart LR
+  UI["React UI\n(Chat, QuickDx, Runbooks, Terminal)"] --> API["Express API"]
+  API --> BROKER["Command Broker\n(policy + adapters)"]
+  BROKER --> KUBECTL["kubectl / cluster tools"]
+  API --> RCA["RCA Service\n(heuristic + agentic enrichment)"]
+  RCA --> LLM["LLM Providers\n(optional)"]
+  UI --> WASM["WASM Helpers\n(client-side scoring)"]
 ```
 
 ## Quickstart
@@ -59,15 +62,26 @@ React UI (Chat, QuickDx, Runbooks, Terminal)
 - pnpm 10+
 - kubectl configured for a reachable cluster context
 
-### Setup
+### Option A: Local Run
 
 ```bash
+git clone https://github.com/kubeagentix/kubeagentix-ce.git
+cd kubeagentix-ce
 pnpm install
 cp .env.example .env
 pnpm dev
 ```
 
-App runs locally with frontend + backend integration.
+### Option B: Docker Compose Run
+
+```bash
+git clone https://github.com/kubeagentix/kubeagentix-ce.git
+cd kubeagentix-ce
+cp .env.example .env
+docker compose up --build
+```
+
+This launches KubeAgentiX CE at `http://localhost:4000` and mounts your local kubeconfig as read-only.
 
 ### Build and Test
 
@@ -125,6 +139,7 @@ Near-term OSS focus:
 - Expand skills coverage and verification flows.
 - Strengthen multi-cluster context handling.
 - Improve observability integrations in a non-breaking way.
+- Add an optional NPX bootstrap flow for one-command local startup.
 
 ## Community
 

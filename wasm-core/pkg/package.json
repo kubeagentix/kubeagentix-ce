@@ -1,0 +1,15 @@
+{
+  "name": "wasm-core",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "wasm_core_bg.wasm",
+    "wasm_core.js",
+    "wasm_core.d.ts"
+  ],
+  "main": "wasm_core.js",
+  "types": "wasm_core.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

@@ -37,6 +37,8 @@ jobs:
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - name: Install docs dependencies
         run: pnpm --dir docs-site install --frozen-lockfile

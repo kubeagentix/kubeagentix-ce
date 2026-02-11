@@ -1,0 +1,19 @@
+services:
+  kubeagentix-ce:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kubeagentix/kubeagentix-ce:local
+    container_name: kubeagentix-ce
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      VITE_USE_WASM_CORE: ${VITE_USE_WASM_CORE:-true}
+    volumes:
+      - ${HOME}/.kube:/root/.kube:ro
+    restart: unless-stopped
