@@ -1,0 +1,49 @@
+{
+  "id": "pending-pod-analysis",
+  "version": "1.0.0",
+  "name": "Pending Pod Analysis",
+  "description": "Diagnose why a pod is stuck in pending state.",
+  "category": "diagnostic",
+  "tags": ["rca", "pending", "scheduler", "diagnostic"],
+  "triggers": ["Pending", "Unschedulable"],
+  "inputSchema": [
+    {
+      "key": "podName",
+      "label": "Pod Name",
+      "required": true
+    },
+    {
+      "key": "namespace",
+      "label": "Namespace",
+      "required": true,
+      "defaultValue": "default"
+    }
+  ],
+  "steps": [
+    {
+      "id": "describe-pod",
+      "title": "Describe Pending Pod",
+      "description": "Get scheduler and condition information",
+      "type": "command",
+      "command": "kubectl describe pod {{podName}} -n {{namespace}}",
+      "onError": "stop",
+      "timeoutMs": 15000
+    },
+    {
+      "id": "node-capacity",
+      "title": "Check Node Capacity",
+      "description": "Inspect node resource pressure",
+      "type": "command",
+      "command": "kubectl top nodes",
+      "onError": "continue",
+      "timeoutMs": 15000
+    }
+  ],
+  "successChecks": [
+    "Scheduler rejection reason collected",
+    "Capacity/placement constraints identified"
+  ],
+  "rollbackHints": [
+    "Diagnostic only; no cluster changes made"
+  ]
+}

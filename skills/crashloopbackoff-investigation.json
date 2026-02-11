@@ -1,0 +1,59 @@
+{
+  "id": "crashloopbackoff-investigation",
+  "version": "1.0.0",
+  "name": "CrashLoopBackOff Investigation",
+  "description": "Collect pod status, recent logs, and warning events to identify startup failures.",
+  "category": "diagnostic",
+  "tags": ["rca", "crashloop", "pod", "diagnostic"],
+  "triggers": ["CrashLoopBackOff", "pod restart"],
+  "inputSchema": [
+    {
+      "key": "podName",
+      "label": "Pod Name",
+      "description": "Target pod name",
+      "required": true
+    },
+    {
+      "key": "namespace",
+      "label": "Namespace",
+      "required": true,
+      "defaultValue": "default"
+    }
+  ],
+  "steps": [
+    {
+      "id": "get-pod",
+      "title": "Inspect Pod Status",
+      "description": "Fetch pod details and restart reason",
+      "type": "command",
+      "command": "kubectl get pod {{podName}} -n {{namespace}} -o json",
+      "onError": "stop",
+      "timeoutMs": 15000
+    },
+    {
+      "id": "pod-logs",
+      "title": "Collect Recent Logs",
+      "description": "Fetch last 120 log lines for startup error clues",
+      "type": "command",
+      "command": "kubectl logs {{podName}} -n {{namespace}} --tail 120",
+      "onError": "continue",
+      "timeoutMs": 15000
+    },
+    {
+      "id": "events",
+      "title": "Check Warning Events",
+      "description": "Review cluster events for scheduling/image/config issues",
+      "type": "command",
+      "command": "kubectl get events -n {{namespace}}",
+      "onError": "continue",
+      "timeoutMs": 15000
+    }
+  ],
+  "successChecks": [
+    "Pod phase and reason identified",
+    "At least one actionable failure signal found"
+  ],
+  "rollbackHints": [
+    "No changes applied by this diagnostic skill"
+  ]
+}

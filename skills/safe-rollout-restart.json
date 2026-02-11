@@ -1,0 +1,55 @@
+{
+  "id": "safe-rollout-restart",
+  "version": "1.0.0",
+  "name": "Safe Rollout Restart",
+  "description": "Perform a controlled restart of a deployment and verify rollout status.",
+  "category": "remediation",
+  "tags": ["rca", "restart", "deployment", "remediation"],
+  "triggers": ["stuck deployment", "transient failure"],
+  "inputSchema": [
+    {
+      "key": "deploymentName",
+      "label": "Deployment Name",
+      "required": true
+    },
+    {
+      "key": "namespace",
+      "label": "Namespace",
+      "required": true,
+      "defaultValue": "default"
+    }
+  ],
+  "steps": [
+    {
+      "id": "preview",
+      "title": "Review Current Deployment State",
+      "description": "Inspect deployment before applying restart",
+      "type": "command",
+      "command": "kubectl get deployment {{deploymentName}} -n {{namespace}} -o json",
+      "onError": "stop",
+      "timeoutMs": 15000
+    },
+    {
+      "id": "manual-check",
+      "title": "Confirm Blast Radius",
+      "description": "Ensure restart is safe for current traffic profile",
+      "type": "manual"
+    },
+    {
+      "id": "rollout-status",
+      "title": "Verify Rollout Status",
+      "description": "Track deployment readiness after restart command",
+      "type": "command",
+      "command": "kubectl describe deployment {{deploymentName}} -n {{namespace}}",
+      "onError": "continue",
+      "timeoutMs": 15000
+    }
+  ],
+  "successChecks": [
+    "Deployment remains available",
+    "No new warning events introduced"
+  ],
+  "rollbackHints": [
+    "If unstable, rollback deployment revision via kubectl rollout undo"
+  ]
+}

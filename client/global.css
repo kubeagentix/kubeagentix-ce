@@ -1,0 +1,222 @@
+/** @import must precede all other statements */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /**
+   * KubeAgentiX v2 Theme
+   * Dark theme with burnt orange accents
+   * tailwind.config.ts expects the following color variables to be expressed as HSL values.
+  */
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* Orange scale for KubeAgentiX */
+    --orange-50: 24 100% 97%;
+    --orange-100: 24 100% 88%;
+    --orange-200: 24 97% 77%;
+    --orange-300: 24 97% 64%;
+    --orange-400: 25 95% 53%;
+    --orange-500: 25 94% 44%;
+    --orange-600: 20 84% 39%;
+    --orange-700: 17 88% 40%;
+    --orange-800: 15 79% 34%;
+    --orange-900: 13 74% 27%;
+  }
+
+  .dark {
+    --background: 220 13% 8%;
+    --foreground: 210 40% 98%;
+
+    --card: 220 13% 11%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 220 13% 11%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 17 88% 40%;
+    --primary-foreground: 220 13% 8%;
+
+    --secondary: 220 13% 20%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 220 13% 20%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 17 88% 40%;
+    --accent-foreground: 220 13% 8%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 220 13% 8%;
+
+    --border: 220 13% 18%;
+    --input: 220 13% 18%;
+    --ring: 17 88% 40%;
+
+    --sidebar-background: 220 13% 8%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 17 88% 40%;
+    --sidebar-primary-foreground: 220 13% 8%;
+    --sidebar-accent: 220 13% 20%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 220 13% 18%;
+    --sidebar-ring: 17 88% 40%;
+
+    /* Orange scale for KubeAgentiX */
+    --orange-50: 24 100% 97%;
+    --orange-100: 24 100% 88%;
+    --orange-200: 24 97% 77%;
+    --orange-300: 24 97% 64%;
+    --orange-400: 25 95% 53%;
+    --orange-500: 25 94% 44%;
+    --orange-600: 20 84% 39%;
+    --orange-700: 17 88% 40%;
+    --orange-800: 15 79% 34%;
+    --orange-900: 13 74% 27%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  :where(p, span, li, h1, h2, h3, h4, h5, h6, a, button, label, td, th) {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  pre,
+  code {
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  /* KubeAgentiX custom styles */
+  html {
+    @apply dark;
+  }
+
+  .mode-button {
+    @apply px-3 py-1.5 rounded-md text-sm font-medium transition-colors duration-200 flex items-center gap-2;
+  }
+
+  .mode-button-active {
+    @apply bg-orange-700 text-white;
+  }
+
+  .mode-button-inactive {
+    @apply text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800;
+  }
+
+  .health-dot {
+    @apply inline-block w-2 h-2 rounded-full;
+  }
+
+  .health-dot-healthy {
+    @apply bg-green-500;
+  }
+
+  .health-dot-warning {
+    @apply bg-yellow-500;
+  }
+
+  .health-dot-critical {
+    @apply bg-red-500;
+  }
+
+  .resource-item {
+    @apply flex items-center justify-between px-4 py-3 border-b border-zinc-700 hover:bg-zinc-800 transition-colors duration-150;
+  }
+
+  .status-badge {
+    @apply inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium;
+  }
+
+  .status-running {
+    @apply bg-green-500/15 text-green-400 border border-green-500/30;
+  }
+
+  .status-error {
+    @apply bg-red-500/15 text-red-400 border border-red-500/30;
+  }
+
+  .status-pending {
+    @apply bg-yellow-500/15 text-yellow-400 border border-yellow-500/30;
+  }
+
+  .status-unknown {
+    @apply bg-zinc-500/15 text-zinc-400 border border-zinc-500/30;
+  }
+
+  /* Card styling for blue-900/20 background pattern */
+  .card-secondary {
+    @apply bg-blue-900/20 border border-blue-800;
+  }
+
+  .card-warning {
+    @apply bg-red-950/30 border border-red-900 border-l-4 border-l-red-500;
+  }
+
+  .card-alert {
+    @apply bg-red-950/20 border-l-4 border-l-red-500 border border-red-900;
+  }
+
+  /* Button styling for sky-400/60 */
+  .btn-primary-sky {
+    @apply bg-sky-400/60 hover:bg-sky-400/70 text-white;
+  }
+
+  /* Updated accent styling */
+  .accent-orange {
+    @apply text-orange-400;
+  }
+
+  .accent-sky {
+    @apply text-sky-400;
+  }
+}
