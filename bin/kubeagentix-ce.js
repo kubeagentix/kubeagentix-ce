@@ -127,7 +127,7 @@ function start() {
     console.error(
       "If running from source, run `pnpm build` first. If running from npm, reinstall the package.",
     );
-    return 1;
+    process.exit(1);
   }
 
   const kubectlBinary = detectKubectlBinary();
@@ -173,8 +173,6 @@ function start() {
     console.error(`Failed to start server: ${error.message}`);
     process.exit(1);
   });
-
-  return 0;
 }
 
 function main() {
@@ -195,7 +193,8 @@ function main() {
   }
 
   if (command === "start") {
-    process.exit(start());
+    start();
+    return;
   }
 
   console.error(`Unknown command: ${command}`);
