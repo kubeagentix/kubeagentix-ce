@@ -10,6 +10,7 @@
 [![Security](https://github.com/kubeagentix/kubeagentix-ce/actions/workflows/security.yml/badge.svg)](https://github.com/kubeagentix/kubeagentix-ce/actions/workflows/security.yml)
 [![CodeQL](https://github.com/kubeagentix/kubeagentix-ce/actions/workflows/codeql.yml/badge.svg)](https://github.com/kubeagentix/kubeagentix-ce/actions/workflows/codeql.yml)
 [![Docs Pages](https://github.com/kubeagentix/kubeagentix-ce/actions/workflows/docs-pages.yml/badge.svg)](https://github.com/kubeagentix/kubeagentix-ce/actions/workflows/docs-pages.yml)
+[![GitHub stars](https://img.shields.io/github/stars/kubeagentix/kubeagentix-ce?style=social)](https://github.com/kubeagentix/kubeagentix-ce/stargazers)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](./LICENSE)
 
 </div>
@@ -145,6 +146,13 @@ Near-term OSS focus:
 
 - GitHub: https://github.com/kubeagentix/kubeagentix-ce
 - Discussions and issues are the primary feedback channel.
+- Agentic DevOps Collective: https://agenticdevops.org/
+
+If this project helps you, please star the repo: https://github.com/kubeagentix/kubeagentix-ce
+
+### Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=kubeagentix/kubeagentix-ce&type=Date)](https://star-history.com/#kubeagentix/kubeagentix-ce&Date)
 
 ## License
 
