@@ -63,6 +63,20 @@ flowchart LR
 - pnpm 10+
 - kubectl configured for a reachable cluster context
 
+### 1-Minute Setup (NPX)
+
+```bash
+npx create-kubeagentix-ce@latest
+cd kubeagentix-ce
+docker compose up --build
+```
+
+You can also pick a custom directory:
+
+```bash
+npx create-kubeagentix-ce@latest my-kubeagentix
+```
+
 ### Option A: Local Run
 
 ```bash

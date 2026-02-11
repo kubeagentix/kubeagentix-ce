@@ -1,0 +1,36 @@
+name: Publish create-kubeagentix-ce
+
+on:
+  push:
+    tags:
+      - "create-kubeagentix-ce-v*"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Set package version from tag
+        if: startsWith(github.ref, 'refs/tags/create-kubeagentix-ce-v')
+        working-directory: packages/create-kubeagentix-ce
+        run: |
+          VERSION="${GITHUB_REF_NAME#create-kubeagentix-ce-v}"
+          npm version "$VERSION" --no-git-tag-version
+
+      - name: Publish package
+        working-directory: packages/create-kubeagentix-ce
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
