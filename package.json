@@ -3,9 +3,7 @@
   "version": "0.1.0",
   "private": false,
   "type": "module",
-  "bin": {
-    "kubeagentix-ce": "./bin/kubeagentix-ce.js"
-  },
+  "bin": "bin/kubeagentix-ce.js",
   "files": [
     "bin/**",
     "dist/**",
