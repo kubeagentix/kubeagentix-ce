@@ -189,7 +189,8 @@ export function startServer(): Promise<void> {
 }
 
 // Start server if this file is run directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+const isNodeBuildEntrypoint = process.argv[1]?.includes("node-build");
+if (import.meta.url === `file://${process.argv[1]}` && !isNodeBuildEntrypoint) {
   startServer().catch((err) => {
     console.error("Failed to start server:", err);
     process.exit(1);
