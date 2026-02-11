@@ -1,6 +1,7 @@
 import { getCommandBroker } from "../commands/broker";
 
 const DEFAULT_NS = "default";
+const MAX_K8S_JSON_OUTPUT_BYTES = 5 * 1024 * 1024;
 
 const RESOURCE_MAP: Record<string, string> = {
   pod: "pods",
@@ -101,6 +102,29 @@ function parseJson<T>(raw: string): T {
   return JSON.parse(raw) as T;
 }
 
+function fallbackResourceStatus(statusHint: string): "running" | "error" | "warning" | "pending" {
+  const normalized = statusHint.toLowerCase();
+  if (!normalized || normalized === "<none>" || normalized === "none") return "running";
+  if (normalized.includes("running") || normalized.includes("active")) return "running";
+  if (
+    normalized.includes("pending") ||
+    normalized.includes("containercreating") ||
+    normalized.includes("init")
+  ) {
+    return "pending";
+  }
+  if (
+    normalized.includes("error") ||
+    normalized.includes("failed") ||
+    normalized.includes("crashloop") ||
+    normalized.includes("backoff")
+  ) {
+    return "error";
+  }
+  if (normalized.includes("warning") || normalized.includes("terminating")) return "warning";
+  return "warning";
+}
+
 function parseCpuMillicores(value?: string): number {
   if (!value) return 0;
   if (value.endsWith("m")) return parseFloat(value.replace("m", ""));
@@ -136,6 +160,65 @@ async function runCommand(
   });
 }
 
+async function listResourcesWithFallback(params: {
+  resourceType: string;
+  namespace: string;
+  context?: string;
+  selector: string;
+  nsArg: string;
+  limit: number;
+}) {
+  const fallbackResult = await runCommand(
+    `kubectl get ${params.resourceType}${params.nsArg}${params.selector} --no-headers -o custom-columns=KIND:.kind,NAMESPACE:.metadata.namespace,NAME:.metadata.name,STATUS:.status.phase,CREATED:.metadata.creationTimestamp`,
+    20_000,
+    1 * 1024 * 1024,
+    params.context,
+  );
+
+  if (fallbackResult.exitCode !== 0) {
+    throw new Error(fallbackResult.stderr || "Failed to fetch resources");
+  }
+
+  const resources = fallbackResult.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, params.limit)
+    .map((line) => {
+      const tokens = line.split(/\s+/);
+      if (tokens.length < 5) {
+        return null;
+      }
+
+      const created = tokens[tokens.length - 1];
+      const statusHint = tokens[tokens.length - 2];
+      const name = tokens[tokens.length - 3];
+      const namespace = tokens[tokens.length - 4];
+      const kind = tokens.slice(0, tokens.length - 4).join(" ") || "Resource";
+
+      const resolvedNamespace =
+        namespace && namespace !== "<none>"
+          ? namespace
+          : kind === "Namespace"
+            ? name
+            : params.namespace;
+
+      return {
+        id: `${kind}/${resolvedNamespace}/${name}`,
+        name,
+        kind,
+        namespace: resolvedNamespace,
+        status: fallbackResourceStatus(statusHint),
+        age: ageFrom(created),
+        labels: {},
+        annotations: {},
+      };
+    })
+    .filter((value): value is NonNullable<typeof value> => value !== null);
+
+  return { resources, count: resources.length };
+}
+
 export async function listResources(params: {
   resourceType: string;
   namespace?: string;
@@ -157,7 +240,7 @@ export async function listResources(params: {
   const result = await runCommand(
     `kubectl get ${resourceType}${nsArg}${selector} -o json`,
     20_000,
-    2 * 1024 * 1024,
+    MAX_K8S_JSON_OUTPUT_BYTES,
     params.context,
   );
 
@@ -165,8 +248,31 @@ export async function listResources(params: {
     throw new Error(result.stderr || "Failed to fetch resources");
   }
 
-  const payload = parseJson<{ items: any[] }>(result.stdout || "{\"items\":[]}");
   const limit = Math.max(1, Math.min(params.limit || 50, 200));
+  if (result.truncated) {
+    return listResourcesWithFallback({
+      resourceType,
+      namespace,
+      context: params.context,
+      selector,
+      nsArg,
+      limit,
+    });
+  }
+
+  let payload: { items: any[] };
+  try {
+    payload = parseJson<{ items: any[] }>(result.stdout || "{\"items\":[]}");
+  } catch {
+    return listResourcesWithFallback({
+      resourceType,
+      namespace,
+      context: params.context,
+      selector,
+      nsArg,
+      limit,
+    });
+  }
 
   const resources = (payload.items || []).slice(0, limit).map((item) => {
     const kind = item?.kind || "Resource";
@@ -274,7 +380,7 @@ export async function getEvents(params: {
   const result = await runCommand(
     `kubectl get events ${nsArg} -o json`,
     20_000,
-    2 * 1024 * 1024,
+    MAX_K8S_JSON_OUTPUT_BYTES,
     params.context,
   );
 

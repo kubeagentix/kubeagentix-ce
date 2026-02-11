@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { shapeResourceStatus } from "@/lib/wasmCore";
 
 export interface KubernetesResource {
@@ -61,11 +61,38 @@ export function useKubernetesData(
   const [events, setEvents] = useState<K8sEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const requestCounterRef = useRef(0);
+
+  const buildHttpError = useCallback(
+    async (response: Response, label: "resources" | "events"): Promise<Error> => {
+      let detail = "";
+      try {
+        const payload = (await response.json()) as {
+          error?: string;
+          details?: unknown;
+        };
+        if (typeof payload.error === "string" && payload.error.trim().length > 0) {
+          detail = payload.error.trim();
+        } else if (typeof payload.details === "string" && payload.details.trim().length > 0) {
+          detail = payload.details.trim();
+        }
+      } catch {
+        // Keep terse fallback message if body is not JSON.
+      }
+
+      const suffix = detail ? ` (${detail})` : "";
+      return new Error(`Failed to load ${label}: ${response.status}${suffix}`);
+    },
+    [],
+  );
 
   const fetchData = useCallback(async () => {
+    const requestId = ++requestCounterRef.current;
     try {
-      setLoading(true);
-      setError(null);
+      if (requestId === requestCounterRef.current) {
+        setLoading(true);
+        setError(null);
+      }
 
       const [resourceResponse, eventsResponse] = await Promise.all([
         fetch(
@@ -81,11 +108,11 @@ export function useKubernetesData(
       ]);
 
       if (!resourceResponse.ok) {
-        throw new Error(`Failed to load resources: ${resourceResponse.status}`);
+        throw await buildHttpError(resourceResponse, "resources");
       }
 
       if (!eventsResponse.ok) {
-        throw new Error(`Failed to load events: ${eventsResponse.status}`);
+        throw await buildHttpError(eventsResponse, "events");
       }
 
       const resourceData = await resourceResponse.json();
@@ -100,6 +127,10 @@ export function useKubernetesData(
         ),
       );
 
+      if (requestId !== requestCounterRef.current) {
+        return;
+      }
+
       setResources(normalizedResources);
       setEvents(
         ((eventsData.events || []) as K8sEvent[]).map((event) => ({
@@ -108,13 +139,19 @@ export function useKubernetesData(
         })),
       );
     } catch (err) {
+      if (requestId !== requestCounterRef.current) {
+        return;
+      }
+
       setError(
         err instanceof Error ? err.message : "Failed to fetch Kubernetes data",
       );
     } finally {
-      setLoading(false);
+      if (requestId === requestCounterRef.current) {
+        setLoading(false);
+      }
     }
-  }, [resourceType, namespace, clusterContext]);
+  }, [buildHttpError, resourceType, namespace, clusterContext]);
 
   useEffect(() => {
     fetchData();

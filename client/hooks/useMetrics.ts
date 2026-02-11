@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   correlateMetricSeries,
   normalizeMetricSeries,
@@ -56,11 +56,15 @@ export function useMetrics(
   const [metrics, setMetrics] = useState<ClusterMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const requestCounterRef = useRef(0);
 
   const fetchMetrics = useCallback(async () => {
+    const requestId = ++requestCounterRef.current;
     try {
-      setLoading(true);
-      setError(null);
+      if (requestId === requestCounterRef.current) {
+        setLoading(true);
+        setError(null);
+      }
 
       const response = await fetch(
         `/api/k8s/metrics?namespace=${encodeURIComponent(namespace)}${
@@ -69,10 +73,30 @@ export function useMetrics(
       );
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch metrics: ${response.status}`);
+        let detail = "";
+        try {
+          const payload = (await response.json()) as {
+            error?: string;
+            details?: unknown;
+          };
+          if (typeof payload.error === "string" && payload.error.trim().length > 0) {
+            detail = payload.error.trim();
+          } else if (typeof payload.details === "string" && payload.details.trim().length > 0) {
+            detail = payload.details.trim();
+          }
+        } catch {
+          // Keep fallback message if body is not JSON.
+        }
+
+        const suffix = detail ? ` (${detail})` : "";
+        throw new Error(`Failed to fetch metrics: ${response.status}${suffix}`);
       }
 
       const api = await response.json();
+
+      if (requestId !== requestCounterRef.current) {
+        return;
+      }
 
       setMetrics((prev) => {
         const cpuHistoryRaw = appendHistory(
@@ -119,9 +143,15 @@ export function useMetrics(
         };
       });
     } catch (err) {
+      if (requestId !== requestCounterRef.current) {
+        return;
+      }
+
       setError(err instanceof Error ? err.message : "Failed to fetch metrics");
     } finally {
-      setLoading(false);
+      if (requestId === requestCounterRef.current) {
+        setLoading(false);
+      }
     }
   }, [namespace, clusterContext]);
 
