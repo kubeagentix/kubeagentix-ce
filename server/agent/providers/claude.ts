@@ -48,13 +48,18 @@ export class ClaudeProvider implements LLMProvider {
   name = "Claude (Anthropic)";
 
   supportedModels = [
+    "claude-opus-4-6",
+    "claude-sonnet-4-5-20250929",
+    "claude-opus-4-5-20251101",
+    "claude-haiku-4-5-20251001",
     "claude-opus-4-1-20250805",
-    "claude-sonnet-4-20250514",
     "claude-opus-4-20250514",
+    "claude-sonnet-4-20250514",
+    "claude-3-7-sonnet-20250219",
     "claude-3-5-sonnet-20241022",
-    "claude-3-5-haiku-20241022",
+    "claude-3-5-haiku-latest",
   ];
-  defaultModel = "claude-sonnet-4-20250514";
+  defaultModel = "claude-sonnet-4-5-20250929";
   contextWindowSize = 200000;
   supportsStreaming = true;
   supportsToolUse = true;
@@ -68,19 +73,133 @@ export class ClaudeProvider implements LLMProvider {
   priority = 1;
 
   private client: Anthropic;
+  private authFallbackToken?: string;
+  private authFallbackUsed = false;
   private maxRetries = 3;
   private retryDelayMs = 1000;
 
-  constructor(apiKey?: string) {
-    const key = apiKey || process.env.ANTHROPIC_API_KEY;
-    if (!key) {
+  constructor(apiKeyOrToken?: string, authToken?: string) {
+    const credential = this.resolveCredentials(apiKeyOrToken, authToken);
+
+    if (!credential.apiKey && !credential.authToken) {
       throw new AgentError(
         "MISSING_API_KEY",
-        "ANTHROPIC_API_KEY is required for Claude provider",
-        false
+        "ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN is required for Claude provider",
+        false,
       );
     }
-    this.client = new Anthropic({ apiKey: key });
+
+    this.authFallbackToken = credential.fallbackAuthToken;
+    this.client = credential.apiKey
+      ? this.createClient({ apiKey: credential.apiKey })
+      : this.createClient({ authToken: credential.authToken! });
+  }
+
+  private resolveCredentials(
+    apiKeyOrToken?: string,
+    explicitAuthToken?: string,
+  ): { apiKey?: string; authToken?: string; fallbackAuthToken?: string } {
+    const prefixed = this.extractPrefixedCredential(apiKeyOrToken);
+    const normalizedExplicitAuthToken = this.normalizeCredential(explicitAuthToken);
+
+    const explicitApiKey = prefixed.apiKey;
+    const explicitToken =
+      normalizedExplicitAuthToken ||
+      prefixed.authToken ||
+      (this.looksLikeApiKey(apiKeyOrToken) ? undefined : this.normalizeCredential(apiKeyOrToken));
+
+    if (explicitApiKey) {
+      return { apiKey: explicitApiKey, fallbackAuthToken: explicitApiKey };
+    }
+
+    if (explicitToken) {
+      return { authToken: explicitToken };
+    }
+
+    const envApiKey = this.normalizeCredential(process.env.ANTHROPIC_API_KEY);
+    const envAuthToken = this.normalizeCredential(process.env.ANTHROPIC_AUTH_TOKEN);
+
+    const apiKey = envApiKey;
+    const authToken = !apiKey ? envAuthToken : undefined;
+
+    return {
+      apiKey,
+      authToken,
+      fallbackAuthToken: apiKey || undefined,
+    };
+  }
+
+  private createClient(credentials: {
+    apiKey?: string;
+    authToken?: string;
+  }): Anthropic {
+    if (credentials.apiKey) {
+      return new Anthropic({ apiKey: credentials.apiKey, authToken: null });
+    }
+    return new Anthropic({ apiKey: null, authToken: credentials.authToken! });
+  }
+
+  private extractPrefixedCredential(
+    credential?: string,
+  ): { apiKey?: string; authToken?: string } {
+    const normalized = this.normalizeCredential(credential);
+    if (!normalized) {
+      return {};
+    }
+
+    const apiKeyPrefixMatch = normalized.match(/^api(?:[_-]?key)?:(.+)$/i);
+    if (apiKeyPrefixMatch) {
+      return { apiKey: this.normalizeCredential(apiKeyPrefixMatch[1]) };
+    }
+
+    const authTokenPrefixMatch = normalized.match(
+      /^(?:auth(?:[_-]?token)?|bearer):(.+)$/i,
+    );
+    if (authTokenPrefixMatch) {
+      return { authToken: this.normalizeCredential(authTokenPrefixMatch[1]) };
+    }
+
+    return this.looksLikeApiKey(normalized)
+      ? { apiKey: normalized }
+      : { authToken: normalized };
+  }
+
+  private looksLikeApiKey(value?: string): boolean {
+    const normalized = this.normalizeCredential(value);
+    return !!normalized && /^sk-ant(?:[-_]|$)/i.test(normalized);
+  }
+
+  private normalizeCredential(value?: string): string | undefined {
+    if (!value) return undefined;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private shouldFallbackToAuthToken(error: unknown): boolean {
+    if (this.authFallbackUsed || !this.authFallbackToken) {
+      return false;
+    }
+
+    if (error instanceof Anthropic.APIError) {
+      const details = (error as any).error?.message;
+      const message = `${error.message || ""} ${details || ""}`.toLowerCase();
+      return error.status === 401 && message.includes("invalid x-api-key");
+    }
+
+    if (error instanceof Error) {
+      return error.message.toLowerCase().includes("invalid x-api-key");
+    }
+
+    return false;
+  }
+
+  private activateAuthTokenFallback(): void {
+    if (!this.authFallbackToken || this.authFallbackUsed) {
+      return;
+    }
+
+    this.client = this.createClient({ authToken: this.authFallbackToken });
+    this.authFallbackUsed = true;
   }
 
   /**
@@ -262,6 +381,11 @@ export class ClaudeProvider implements LLMProvider {
         // Successfully completed - exit retry loop
         return;
       } catch (error) {
+        if (this.shouldFallbackToAuthToken(error)) {
+          this.activateAuthTokenFallback();
+          continue;
+        }
+
         retryCount++;
 
         // Check if error is retryable
@@ -358,6 +482,12 @@ export class ClaudeProvider implements LLMProvider {
         }
       }
     } catch (error) {
+      if (this.shouldFallbackToAuthToken(error)) {
+        this.activateAuthTokenFallback();
+        yield* this.continueWithToolResults(config, toolResults);
+        return;
+      }
+
       yield {
         type: "error",
         chunkId: uuidv4(),
@@ -449,6 +579,9 @@ export class ClaudeProvider implements LLMProvider {
 /**
  * Create a Claude provider instance
  */
-export function createClaudeProvider(apiKey?: string): ClaudeProvider {
-  return new ClaudeProvider(apiKey);
+export function createClaudeProvider(
+  apiKeyOrToken?: string,
+  authToken?: string,
+): ClaudeProvider {
+  return new ClaudeProvider(apiKeyOrToken, authToken);
 }

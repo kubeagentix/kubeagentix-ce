@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-02-13
+
+### Added
+- Docker runtime entrypoint that prepares mounted kubeconfig and local API endpoint bridging for host-based clusters.
+- Support for Anthropic bearer-token auth (`ANTHROPIC_AUTH_TOKEN`) alongside API-key auth.
+- Extended Claude model catalog in provider settings and backend metadata to include current 4.5/4.6 model IDs.
+- Additional provider regression tests for auth-mode resolution and empty-env handling.
+
+### Changed
+- Docker image now installs `kubectl` in the runtime stage so Kubernetes commands execute inside the container out of the box.
+- Compose runtime now injects host gateway mapping and localhost kubeconfig proxy toggle defaults.
+- Claude provider now auto-recovers from invalid `x-api-key` auth errors by retrying once with bearer auth when applicable.
+- Provider settings and model preference plumbing now accept either API key or auth token for Claude.
+
+### Fixed
+- `spawn kubectl ENOENT` failures in Docker deployments where kubeconfig was mounted but `kubectl` binary was absent.
+- TLS and connectivity failures for localhost-backed kubeconfig endpoints from containerized runtime.
+- Anthropic auth resolution failures caused by empty-string `ANTHROPIC_API_KEY` env values in compose environments.
+
 ## [0.3.0] - 2026-02-10
 
 ### Added

@@ -19,6 +19,7 @@ import { GeminiProvider } from "./gemini";
  */
 export interface ProviderConfig {
   claudeApiKey?: string;
+  claudeAuthToken?: string;
   openaiApiKey?: string;
   geminiApiKey?: string;
 }
@@ -33,10 +34,12 @@ export function createConfiguredProviders(
   const providers = new Map<string, LLMProvider>();
 
   // Try to create Claude provider
-  const claudeKey = config.claudeApiKey || process.env.ANTHROPIC_API_KEY;
-  if (claudeKey) {
+  const claudeApiKey = config.claudeApiKey || process.env.ANTHROPIC_API_KEY;
+  const claudeAuthToken =
+    config.claudeAuthToken || process.env.ANTHROPIC_AUTH_TOKEN;
+  if (claudeApiKey || claudeAuthToken) {
     try {
-      providers.set("claude", new ClaudeProvider(claudeKey));
+      providers.set("claude", new ClaudeProvider(claudeApiKey, claudeAuthToken));
     } catch (error) {
       console.warn("Failed to initialize Claude provider:", error);
     }
@@ -70,11 +73,12 @@ export function createConfiguredProviders(
  */
 export function createProvider(
   providerId: string,
-  apiKey?: string
+  apiKey?: string,
+  authToken?: string,
 ): LLMProvider {
   switch (providerId) {
     case "claude":
-      return new ClaudeProvider(apiKey);
+      return new ClaudeProvider(apiKey, authToken);
     case "openai":
       return new OpenAIProvider(apiKey);
     case "gemini":
@@ -115,7 +119,7 @@ export function getProviderMetadata(): Array<{
       supportsToolUse: true,
       supportsStreaming: true,
       supportsExtendedThinking: true,
-      defaultModel: "claude-sonnet-4-20250514",
+      defaultModel: "claude-sonnet-4-5-20250929",
     },
     {
       id: "openai",

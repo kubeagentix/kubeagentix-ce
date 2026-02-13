@@ -501,11 +501,15 @@ function toStreamingProvider(provider: LLMProvider): StreamingProvider | null {
 function chooseProvider(
   request: BrokerSuggestRequest,
 ): { provider: StreamingProvider | null; warning?: string } {
-  if (request.modelPreferences?.providerId && request.modelPreferences?.apiKey) {
+  if (
+    request.modelPreferences?.providerId &&
+    (request.modelPreferences?.apiKey || request.modelPreferences?.authToken)
+  ) {
     try {
       const provider = createProvider(
         request.modelPreferences.providerId,
         request.modelPreferences.apiKey,
+        request.modelPreferences.authToken,
       );
       return { provider: toStreamingProvider(provider) };
     } catch (error) {

@@ -2,6 +2,7 @@ export interface StoredModelPreferences {
   providerId?: string;
   model?: string;
   apiKey?: string;
+  authToken?: string;
 }
 
 /**
@@ -18,14 +19,14 @@ export function getStoredModelPreferences():
   try {
     let llmConfigs: Record<
       string,
-      { model?: string; enabled?: boolean; apiKey?: string }
+      { model?: string; enabled?: boolean; apiKey?: string; authToken?: string }
     > = {};
 
     const rawLlmConfigs = localStorage.getItem("llm_configs");
     if (rawLlmConfigs) {
       llmConfigs = JSON.parse(rawLlmConfigs) as Record<
         string,
-        { model?: string; enabled?: boolean; apiKey?: string }
+        { model?: string; enabled?: boolean; apiKey?: string; authToken?: string }
       >;
     }
 
@@ -46,9 +47,15 @@ export function getStoredModelPreferences():
           apiKey: selectedProvider
             ? llmConfigs[selectedProvider]?.apiKey
             : undefined,
+          authToken: selectedProvider
+            ? llmConfigs[selectedProvider]?.authToken
+            : undefined,
         };
         if (!selected.apiKey) {
           delete selected.apiKey;
+        }
+        if (!selected.authToken) {
+          delete selected.authToken;
         }
         return selected;
       }
@@ -66,14 +73,17 @@ export function getStoredModelPreferences():
       providerId: preferredProvider,
       model: llmConfigs[preferredProvider]?.model,
       apiKey: llmConfigs[preferredProvider]?.apiKey,
+      authToken: llmConfigs[preferredProvider]?.authToken,
     };
 
     if (!fallback.apiKey) {
       delete fallback.apiKey;
+    }
+    if (!fallback.authToken) {
+      delete fallback.authToken;
     }
     return fallback;
   } catch {
     return undefined;
   }
 }
-

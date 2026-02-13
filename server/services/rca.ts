@@ -299,11 +299,15 @@ async function runAgenticRcaAnalysis(params: {
   modelPreferences?: RcaDiagnoseRequest["modelPreferences"];
 }): Promise<{ output: AgenticRcaOutput | null; error?: string }> {
   const engine = getAgentEngine();
-  if (params.modelPreferences?.providerId && params.modelPreferences?.apiKey) {
+  if (
+    params.modelPreferences?.providerId &&
+    (params.modelPreferences?.apiKey || params.modelPreferences?.authToken)
+  ) {
     try {
       const transientProvider = createProvider(
         params.modelPreferences.providerId,
         params.modelPreferences.apiKey,
+        params.modelPreferences.authToken,
       );
       engine.registerProvider(transientProvider);
     } catch (error) {

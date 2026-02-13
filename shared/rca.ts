@@ -20,6 +20,7 @@ export interface RcaDiagnoseRequest {
     providerId?: string;
     model?: string;
     apiKey?: string;
+    authToken?: string;
   };
 }
 

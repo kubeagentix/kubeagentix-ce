@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import Anthropic from "@anthropic-ai/sdk";
 import { ClaudeProvider } from "../providers/claude";
 import { OpenAIProvider } from "../providers/openai";
 import { GeminiProvider } from "../providers/gemini";
@@ -188,6 +189,7 @@ describe("ClaudeProvider", () => {
   beforeEach(() => {
     originalEnv = { ...process.env };
     process.env.ANTHROPIC_API_KEY = "test-api-key";
+    delete process.env.ANTHROPIC_AUTH_TOKEN;
     vi.clearAllMocks();
   });
 
@@ -207,8 +209,69 @@ describe("ClaudeProvider", () => {
       expect(provider.id).toBe("claude");
     });
 
+    it("should use API-key auth when sk-ant key is provided", () => {
+      const provider = new ClaudeProvider("sk-ant-test-key");
+      expect(provider.id).toBe("claude");
+
+      const anthropicMock = vi.mocked(Anthropic);
+      expect(anthropicMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          apiKey: "sk-ant-test-key",
+          authToken: null,
+        })
+      );
+    });
+
+    it("should create provider with auth token from env", () => {
+      delete process.env.ANTHROPIC_API_KEY;
+      process.env.ANTHROPIC_AUTH_TOKEN = "test-auth-token";
+
+      const provider = new ClaudeProvider();
+      expect(provider.id).toBe("claude");
+
+      const anthropicMock = vi.mocked(Anthropic);
+      expect(anthropicMock).toHaveBeenCalledWith(
+        expect.objectContaining({ authToken: "test-auth-token" })
+      );
+    });
+
+    it("should treat non-API-key explicit credential as auth token", () => {
+      const provider = new ClaudeProvider("setup-token-value");
+      expect(provider.id).toBe("claude");
+
+      const anthropicMock = vi.mocked(Anthropic);
+      expect(anthropicMock).toHaveBeenCalledWith(
+        expect.objectContaining({ authToken: "setup-token-value" })
+      );
+    });
+
+    it("should support explicit authToken: prefix", () => {
+      const provider = new ClaudeProvider("authToken:abc123");
+      expect(provider.id).toBe("claude");
+
+      const anthropicMock = vi.mocked(Anthropic);
+      expect(anthropicMock).toHaveBeenCalledWith(
+        expect.objectContaining({ authToken: "abc123" })
+      );
+    });
+
+    it("should force auth token mode when env API key is empty string", () => {
+      process.env.ANTHROPIC_API_KEY = "";
+      const provider = new ClaudeProvider("setup-token-value");
+      expect(provider.id).toBe("claude");
+
+      const anthropicMock = vi.mocked(Anthropic);
+      expect(anthropicMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          apiKey: null,
+          authToken: "setup-token-value",
+        })
+      );
+    });
+
     it("should throw error when no API key provided", () => {
       delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.ANTHROPIC_AUTH_TOKEN;
       expect(() => new ClaudeProvider()).toThrow(AgentError);
     });
   });
@@ -216,7 +279,7 @@ describe("ClaudeProvider", () => {
   describe("provider metadata", () => {
     it("should have correct properties", () => {
       const provider = new ClaudeProvider();
-      expect(provider.supportedModels).toContain("claude-opus-4-1-20250805");
+      expect(provider.supportedModels).toContain("claude-opus-4-6");
       expect(provider.contextWindowSize).toBe(200000);
       expect(provider.supportsStreaming).toBe(true);
       expect(provider.supportsToolUse).toBe(true);
@@ -449,6 +512,7 @@ describe("Provider Factory Functions", () => {
   beforeEach(() => {
     originalEnv = { ...process.env };
     process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+    delete process.env.ANTHROPIC_AUTH_TOKEN;
     process.env.OPENAI_API_KEY = "test-openai-key";
     process.env.GOOGLE_API_KEY = "test-google-key";
     vi.clearAllMocks();
@@ -466,6 +530,14 @@ describe("Provider Factory Functions", () => {
       expect(providers.has("gemini")).toBe(true);
     });
 
+    it("should not create claude provider when anthropic env keys are empty", () => {
+      process.env.ANTHROPIC_API_KEY = "";
+      process.env.ANTHROPIC_AUTH_TOKEN = "";
+
+      const providers = createConfiguredProviders();
+      expect(providers.has("claude")).toBe(false);
+    });
+
     it("should only create providers with available keys", () => {
       delete process.env.OPENAI_API_KEY;
       const providers = createConfiguredProviders();
@@ -476,6 +548,7 @@ describe("Provider Factory Functions", () => {
 
     it("should accept explicit config", () => {
       delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.ANTHROPIC_AUTH_TOKEN;
       delete process.env.OPENAI_API_KEY;
       delete process.env.GOOGLE_API_KEY;
 
@@ -486,6 +559,14 @@ describe("Provider Factory Functions", () => {
       expect(providers.has("claude")).toBe(true);
       expect(providers.has("openai")).toBe(false);
       expect(providers.has("gemini")).toBe(false);
+    });
+
+    it("should create claude provider when only auth token is available", () => {
+      delete process.env.ANTHROPIC_API_KEY;
+      process.env.ANTHROPIC_AUTH_TOKEN = "env-auth-token";
+
+      const providers = createConfiguredProviders();
+      expect(providers.has("claude")).toBe(true);
     });
   });
 

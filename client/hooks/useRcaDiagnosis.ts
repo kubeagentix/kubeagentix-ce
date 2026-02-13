@@ -19,6 +19,7 @@ export function useRcaDiagnosis() {
             providerId?: string;
             model?: string;
             apiKey?: string;
+            authToken?: string;
           }
         | undefined;
 

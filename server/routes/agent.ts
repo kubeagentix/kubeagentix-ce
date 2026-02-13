@@ -170,11 +170,11 @@ export const handleClearConversation: RequestHandler = (req, res) => {
  */
 export const handleTestProvider: RequestHandler = async (req, res) => {
   try {
-    const { providerId, apiKey, model } = req.body;
+    const { providerId, apiKey, authToken, model } = req.body;
 
-    if (!providerId || !apiKey) {
+    if (!providerId || (!apiKey && !authToken)) {
       return res.status(400).json({
-        error: "Missing providerId or apiKey",
+        error: "Missing providerId and credential (apiKey or authToken)",
         code: "INVALID_REQUEST",
       });
     }
@@ -185,7 +185,7 @@ export const handleTestProvider: RequestHandler = async (req, res) => {
     let testProvider;
     try {
       const { createProvider } = await import("../agent/providers");
-      testProvider = createProvider(providerId, apiKey);
+      testProvider = createProvider(providerId, apiKey, authToken);
     } catch (error) {
       return res.status(400).json({
         error: "Invalid provider ID",

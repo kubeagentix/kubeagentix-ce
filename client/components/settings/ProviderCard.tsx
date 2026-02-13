@@ -21,6 +21,7 @@ import {
 
 interface ProviderConfig {
   apiKey?: string;
+  authToken?: string;
   model?: string;
   temperature?: number;
   maxTokens?: number;
@@ -76,7 +77,13 @@ export function ProviderCard({
     }
   };
 
-  const hasApiKey = !!config.apiKey;
+  const hasCredential = !!config.apiKey || !!config.authToken;
+  const credentialLabel =
+    provider.id === "claude" ? "API Key or Auth Token" : "API Key";
+  const credentialPlaceholder =
+    provider.id === "claude"
+      ? "Paste your Anthropic API key or auth token..."
+      : "Paste your API key here...";
 
   const iconMap: Record<string, React.ReactNode> = {
     brain: <Brain className="w-8 h-8 text-orange-400" />,
@@ -100,7 +107,7 @@ export function ProviderCard({
           <div className="text-left flex-1">
             <div className="flex items-center gap-2 mb-1">
               <h3 className="font-semibold text-white">{provider.name}</h3>
-              {hasApiKey && (
+              {hasCredential && (
                 <div className="flex items-center gap-1 text-green-400 text-xs">
                   <Check className="w-3 h-3" />
                   <span>Configured</span>
@@ -149,20 +156,24 @@ export function ProviderCard({
           <div>
             <label className="text-sm font-semibold text-zinc-300 flex items-center gap-2 mb-2">
               <Lock className="w-4 h-4" />
-              API Key
+              {credentialLabel}
             </label>
             <div className="flex gap-2">
               <div className="flex-1 relative">
                 <Input
                   type={showApiKey ? "text" : "password"}
-                  placeholder="Paste your API key here..."
-                  value={config.apiKey || ""}
+                  placeholder={credentialPlaceholder}
+                  value={config.apiKey || config.authToken || ""}
                   onChange={(e) =>
-                    onConfigChange({ ...config, apiKey: e.target.value })
+                    onConfigChange({
+                      ...config,
+                      apiKey: e.target.value,
+                      authToken: undefined,
+                    })
                   }
                   className="bg-zinc-800 border-zinc-700 text-white placeholder-zinc-500"
                 />
-                {config.apiKey && (
+                {(config.apiKey || config.authToken) && (
                   <button
                     onClick={() => setShowApiKey(!showApiKey)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200 text-sm"
@@ -171,9 +182,11 @@ export function ProviderCard({
                   </button>
                 )}
               </div>
-              {config.apiKey && (
+              {(config.apiKey || config.authToken) && (
                 <Button
-                  onClick={() => onConfigChange({ ...config, apiKey: "" })}
+                  onClick={() =>
+                    onConfigChange({ ...config, apiKey: "", authToken: "" })
+                  }
                   variant="outline"
                   size="sm"
                   className="border-red-900 text-red-400 hover:bg-red-950"
@@ -183,13 +196,13 @@ export function ProviderCard({
               )}
             </div>
             <p className="text-xs text-zinc-500 mt-2">
-              🔒 Your API key is stored securely in your system keychain and
+              🔒 Your credential is stored securely in your system keychain and
               never sent to our servers.
             </p>
           </div>
 
           {/* Model Selection */}
-          {hasApiKey && (
+          {hasCredential && (
             <>
               <div>
                 <label className="text-sm font-semibold text-zinc-300 block mb-2">
@@ -289,11 +302,11 @@ export function ProviderCard({
             </>
           )}
 
-          {/* Info when no API key */}
-          {!hasApiKey && (
+          {/* Info when no credential */}
+          {!hasCredential && (
             <div className="p-4 bg-zinc-800 rounded-lg border border-zinc-700">
               <p className="text-sm text-zinc-300">
-                ✨ Add an API key to configure this provider and make it
+                ✨ Add a credential to configure this provider and make it
                 available for your tasks.
               </p>
             </div>

@@ -122,6 +122,7 @@ See `.env.example` for full set. Typical variables:
 
 - `PORT` (default `4000`)
 - `ANTHROPIC_API_KEY`
+- `ANTHROPIC_AUTH_TOKEN` (optional alternative to API key for Claude)
 - `OPENAI_API_KEY`
 - `GOOGLE_API_KEY`
 - `VITE_USE_WASM_CORE`

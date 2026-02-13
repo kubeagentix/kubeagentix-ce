@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 
 interface ProviderConfig {
   apiKey?: string;
+  authToken?: string;
   model?: string;
   temperature?: number;
   maxTokens?: number;
@@ -85,8 +86,8 @@ export function useProviderConfig(): UseProviderConfigReturn {
       setIsLoading((prev) => ({ ...prev, [providerId]: true }));
 
       const config = configs[providerId];
-      if (!config?.apiKey) {
-        throw new Error("API key not configured");
+      if (!config?.apiKey && !config?.authToken) {
+        throw new Error("API key or auth token not configured");
       }
 
       // Test provider connection
@@ -98,6 +99,7 @@ export function useProviderConfig(): UseProviderConfigReturn {
         body: JSON.stringify({
           providerId,
           apiKey: config.apiKey,
+          authToken: config.authToken,
           model: config.model,
         }),
       });
