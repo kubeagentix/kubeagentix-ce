@@ -83,6 +83,11 @@ cp .env.example .env
 docker compose up --build
 ```
 
+Docker mode mounts your host kubeconfig from `${HOME}/.kube` and runs `kubectl`
+inside the container. For local clusters that expose the API server on
+`127.0.0.1`/`localhost` (for example kind), the container starts localhost TCP
+bridges to the host by default so kubeconfig can keep using local endpoints.
+
 ### Optional Bootstrap CLI (Secondary)
 
 If you prefer scaffolding into a local folder first:
@@ -126,9 +131,14 @@ If no LLM keys are set, heuristic fallback paths remain available for core diagn
 ## Troubleshooting
 
 - No kubectl found:
-  Install kubectl and ensure it is on `PATH`.
+  For local mode, install kubectl and ensure it is on `PATH`.
+  For Docker mode, rebuild the image: `docker compose up --build`.
 - No kubeconfig found:
   Configure cluster access in `~/.kube/config` or set `KUBECONFIG`.
+- Docker + localhost cluster endpoint:
+  If your kubeconfig uses `localhost`/`127.0.0.1`, keep
+  `KUBEAGENTIX_PROXY_LOCALHOST_KUBECONFIG=true` (default) so the container can
+  bridge localhost ports to the host endpoint.
 - Port already in use:
   Run with a different port:
   `PORT=4100 npx kubeagentix-ce@latest`
