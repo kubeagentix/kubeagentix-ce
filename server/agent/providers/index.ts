@@ -6,11 +6,13 @@
  */
 
 export { ClaudeProvider, createClaudeProvider } from "./claude";
+export { ClaudeCodeProvider, createClaudeCodeProvider } from "./claudeCode";
 export { OpenAIProvider, createOpenAIProvider } from "./openai";
 export { GeminiProvider, createGeminiProvider } from "./gemini";
 
 import { LLMProvider, AgentError } from "@shared/coordination";
 import { ClaudeProvider } from "./claude";
+import { ClaudeCodeProvider } from "./claudeCode";
 import { OpenAIProvider } from "./openai";
 import { GeminiProvider } from "./gemini";
 
@@ -20,13 +22,14 @@ import { GeminiProvider } from "./gemini";
 export interface ProviderConfig {
   claudeApiKey?: string;
   claudeAuthToken?: string;
+  claudeCodeCliPath?: string;
   openaiApiKey?: string;
   geminiApiKey?: string;
 }
 
 /**
  * Create all configured providers
- * Only creates providers that have API keys configured
+ * Creates API-key providers from explicit credentials/env and optional CLI-backed providers.
  */
 export function createConfiguredProviders(
   config: ProviderConfig = {}
@@ -35,13 +38,27 @@ export function createConfiguredProviders(
 
   // Try to create Claude provider
   const claudeApiKey = config.claudeApiKey || process.env.ANTHROPIC_API_KEY;
-  const claudeAuthToken =
-    config.claudeAuthToken || process.env.ANTHROPIC_AUTH_TOKEN;
+  const claudeAuthToken = config.claudeAuthToken;
   if (claudeApiKey || claudeAuthToken) {
     try {
       providers.set("claude", new ClaudeProvider(claudeApiKey, claudeAuthToken));
     } catch (error) {
       console.warn("Failed to initialize Claude provider:", error);
+    }
+  }
+
+  const enableClaudeCodeRaw = process.env.ENABLE_CLAUDE_CODE_PROVIDER;
+  const enableClaudeCode =
+    !enableClaudeCodeRaw ||
+    ["1", "true", "yes"].includes(enableClaudeCodeRaw.trim().toLowerCase());
+  if (enableClaudeCode) {
+    try {
+      providers.set(
+        "claude_code",
+        new ClaudeCodeProvider(config.claudeCodeCliPath),
+      );
+    } catch (error) {
+      console.warn("Failed to initialize Claude Code provider:", error);
     }
   }
 
@@ -79,6 +96,8 @@ export function createProvider(
   switch (providerId) {
     case "claude":
       return new ClaudeProvider(apiKey, authToken);
+    case "claude_code":
+      return new ClaudeCodeProvider(undefined, authToken || apiKey);
     case "openai":
       return new OpenAIProvider(apiKey);
     case "gemini":
@@ -96,7 +115,7 @@ export function createProvider(
  * Get list of all available provider IDs
  */
 export function getAvailableProviderIds(): string[] {
-  return ["claude", "openai", "gemini"];
+  return ["claude_code", "claude", "openai", "gemini"];
 }
 
 /**
@@ -112,6 +131,15 @@ export function getProviderMetadata(): Array<{
   defaultModel: string;
 }> {
   return [
+    {
+      id: "claude_code",
+      name: "Claude Code (Subscription)",
+      contextWindowSize: 200000,
+      supportsToolUse: false,
+      supportsStreaming: true,
+      supportsExtendedThinking: false,
+      defaultModel: "sonnet",
+    },
     {
       id: "claude",
       name: "Claude (Anthropic)",

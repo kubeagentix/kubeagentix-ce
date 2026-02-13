@@ -22,6 +22,11 @@ import {
   handleListResources,
 } from "./routes/k8s";
 import {
+  handleCreateClaudeSdkSession,
+  handleGetClaudeSdkSession,
+  handleStartClaudeSdkSession,
+} from "./routes/claudeSdk";
+import {
   handleListSkills,
   handleGetSkill,
   handlePlanSkill,
@@ -32,6 +37,7 @@ import { handleDiagnoseResource, handleGetDiagnosis } from "./routes/rca";
 // Import agent engine and initialize providers
 import { getAgentEngine } from "./agent/engine";
 import { createConfiguredProviders } from "./agent/providers";
+import { getClaudeSdkBridge } from "./services/claudeSdkBridge";
 
 // Environment check
 const isProduction = process.env.NODE_ENV === "production";
@@ -54,7 +60,7 @@ function initializeAgentEngine() {
 
   if (configuredProviders.size === 0) {
     console.warn(
-      "⚠ No LLM providers configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY to enable providers.",
+      "⚠ No LLM providers configured. Set API keys or install/authenticate Claude Code CLI to enable providers.",
     );
   } else {
     console.log(
@@ -103,6 +109,12 @@ export function createServer(): Express {
   // CLI command execution route
   app.post("/api/cli/execute", handleCliExecute);
   app.post("/api/cli/suggest", handleCliSuggest);
+  app.post("/api/claude-sdk/sessions", handleCreateClaudeSdkSession);
+  app.get("/api/claude-sdk/sessions/:sessionId", handleGetClaudeSdkSession);
+  app.post(
+    "/api/claude-sdk/sessions/:sessionId/start",
+    handleStartClaudeSdkSession,
+  );
 
   // Kubernetes routes
   app.get("/api/k8s/resources/:resourceType", handleListResources);
@@ -177,9 +189,12 @@ export function startServer(): Promise<void> {
       resolve();
     });
 
+    getClaudeSdkBridge().initialize(server);
+
     // Graceful shutdown
     process.on("SIGTERM", () => {
       console.log("SIGTERM received, shutting down gracefully...");
+      getClaudeSdkBridge().shutdown();
       server.close(() => {
         console.log("Server closed");
         process.exit(0);

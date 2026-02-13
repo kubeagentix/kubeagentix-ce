@@ -172,14 +172,12 @@ export const handleTestProvider: RequestHandler = async (req, res) => {
   try {
     const { providerId, apiKey, authToken, model } = req.body;
 
-    if (!providerId || (!apiKey && !authToken)) {
+    if (!providerId) {
       return res.status(400).json({
-        error: "Missing providerId and credential (apiKey or authToken)",
+        error: "Missing providerId",
         code: "INVALID_REQUEST",
       });
     }
-
-    const engine = getAgentEngine();
 
     // Create a temporary provider to test with the provided API key
     let testProvider;
@@ -209,6 +207,8 @@ export const handleTestProvider: RequestHandler = async (req, res) => {
     let hasResponse = false;
     let errorOccurred = false;
     let errorMessage = "";
+    const maxTestDurationMs = 15000;
+    const startedAt = Date.now();
 
     try {
       // Try to get at least one response chunk from the provider
@@ -216,11 +216,27 @@ export const handleTestProvider: RequestHandler = async (req, res) => {
         "streamResponse" in testProvider &&
         typeof testProvider.streamResponse === "function"
       ) {
-        const generator = testProvider.streamResponse(testRequest);
-        const { value } = await generator.next();
+        for await (const chunk of testProvider.streamResponse(testRequest)) {
+          if (Date.now() - startedAt > maxTestDurationMs) {
+            errorOccurred = true;
+            errorMessage = "Provider test timed out";
+            break;
+          }
 
-        if (value) {
-          hasResponse = true;
+          if (chunk.type === "error") {
+            errorOccurred = true;
+            errorMessage =
+              chunk.error?.message || "Provider returned an error chunk";
+            break;
+          }
+
+          if (chunk.type === "text" && chunk.text?.trim()) {
+            hasResponse = true;
+          }
+
+          if (chunk.type === "text" && chunk.isDone) {
+            break;
+          }
         }
       }
     } catch (streamError) {
@@ -230,9 +246,14 @@ export const handleTestProvider: RequestHandler = async (req, res) => {
     }
 
     if (errorOccurred || !hasResponse) {
+      const normalizedError =
+        errorMessage ||
+        (providerId === "claude_code"
+          ? "Claude Code provider did not return output. Ensure Claude CLI is logged in (`claude /login`) or provide CLAUDE_CODE_AUTH_TOKEN in Docker."
+          : "Provider did not respond");
       return res.status(500).json({
         status: "error",
-        message: errorMessage || "Provider did not respond",
+        message: normalizedError,
         providerId,
         code: "PROVIDER_TEST_FAILED",
       });

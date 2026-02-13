@@ -11,12 +11,20 @@ services:
       NODE_ENV: production
       PORT: 4000
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       VITE_USE_WASM_CORE: ${VITE_USE_WASM_CORE:-true}
       KUBEAGENTIX_PROXY_LOCALHOST_KUBECONFIG: ${KUBEAGENTIX_PROXY_LOCALHOST_KUBECONFIG:-true}
+      ENABLE_CLAUDE_CODE_PROVIDER: ${ENABLE_CLAUDE_CODE_PROVIDER:-true}
+      CLAUDE_CODE_CLI_PATH: ${CLAUDE_CODE_CLI_PATH:-claude}
+      CLAUDE_CODE_TIMEOUT_MS: ${CLAUDE_CODE_TIMEOUT_MS:-45000}
+      CLAUDE_CODE_AUTH_TOKEN: ${CLAUDE_CODE_AUTH_TOKEN:-}
+      CLAUDE_CODE_SETTING_SOURCES: ${CLAUDE_CODE_SETTING_SOURCES:-project,local}
     volumes:
       - ${HOME}/.kube:/root/.kube:ro
+      - ${HOME}/.claude:/root/.claude
+      - ${HOME}/.claude.json:/root/.claude.json
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

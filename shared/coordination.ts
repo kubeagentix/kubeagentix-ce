@@ -44,7 +44,7 @@ export interface ToolPreferences {
  * Model preferences for LLM selection
  */
 export interface ModelPreferences {
-  providerId?: string; // "claude" | "openai" | "gemini" | "ollama"
+  providerId?: string; // "claude_code" | "claude" | "openai" | "gemini" | "ollama"
   model?: string; // Specific model name
   apiKey?: string; // Optional per-request credential override
   authToken?: string; // Optional per-request bearer token override

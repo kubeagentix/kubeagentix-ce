@@ -39,6 +39,7 @@ export default defineConfig({
         "@kubernetes/client-node",
         "pino",
         "dotenv",
+        "ws",
       ],
       output: {
         format: "es",

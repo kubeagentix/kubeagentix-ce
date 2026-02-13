@@ -5,6 +5,24 @@ import { useProviderConfig } from "@/hooks/useProviderConfig";
 
 export const providers = [
   {
+    id: "claude_code",
+    name: "Claude Code (Subscription)",
+    description:
+      "Uses Claude Code local login or auth token (no Anthropic API key required)",
+    models: [
+      { id: "sonnet", name: "Sonnet (Alias)" },
+      { id: "opus", name: "Opus (Alias)" },
+      { id: "claude-sonnet-4-5-20250929", name: "Claude Sonnet 4.5" },
+      { id: "claude-opus-4-6", name: "Claude Opus 4.6" },
+      { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5" },
+    ],
+    pricing: "Uses your Claude Code subscription/account",
+    features: ["Subscription Auth", "Streaming", "No API Key", "Headless Token"],
+    icon: "brain",
+    requiresCredential: false,
+    supportsOptionalCredential: true,
+  },
+  {
     id: "claude",
     name: "Claude (Anthropic)",
     description: "Most capable model with extended thinking and vision",
@@ -22,6 +40,7 @@ export const providers = [
     pricing: "$0.003 / 1K input, $0.015 / 1K output tokens",
     features: ["Streaming", "Extended Thinking", "Vision", "Tool Use"],
     icon: "brain",
+    requiresCredential: true,
   },
   {
     id: "openai",
@@ -38,6 +57,7 @@ export const providers = [
     pricing: "$0.01 / 1K input, $0.03 / 1K output tokens",
     features: ["Streaming", "Vision", "Function Calling"],
     icon: "zap",
+    requiresCredential: true,
   },
   {
     id: "gemini",
@@ -53,6 +73,7 @@ export const providers = [
     pricing: "$0.00025 / 1K input, $0.0005 / 1K output tokens",
     features: ["Streaming", "1M Context", "Vision", "Tool Use"],
     icon: "sparkles",
+    requiresCredential: true,
   },
 ];
 
@@ -108,7 +129,11 @@ export function LLMProviderSettings() {
             provider={provider}
             config={configs[provider.id]}
             onConfigChange={(config) => updateConfig(provider.id, config)}
-            onTest={() => testProvider(provider.id)}
+            onTest={() =>
+              testProvider(provider.id, {
+                requiresCredential: provider.requiresCredential !== false,
+              })
+            }
             isLoading={isLoading[provider.id]}
             isExpanded={expandedProvider === provider.id}
             onExpandChange={(expanded) =>

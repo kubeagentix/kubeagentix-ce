@@ -63,7 +63,7 @@ export function getStoredModelPreferences():
 
     const preferredProvider =
       Object.entries(llmConfigs).find(([, cfg]) => !!cfg?.enabled)?.[0] ||
-      Object.entries(llmConfigs).find(([, cfg]) => !!cfg?.apiKey)?.[0];
+      Object.entries(llmConfigs).find(([, cfg]) => !!cfg?.apiKey || !!cfg?.authToken)?.[0];
 
     if (!preferredProvider) {
       return undefined;

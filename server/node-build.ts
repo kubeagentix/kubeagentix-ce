@@ -1,6 +1,7 @@
 import path from "path";
 import { createServer } from "./index";
 import * as express from "express";
+import { getClaudeSdkBridge } from "./services/claudeSdkBridge";
 
 const app = createServer();
 const port = process.env.PORT || 4000;
@@ -28,6 +29,8 @@ const server = app.listen(port, () => {
   console.log(`🔧 API: http://localhost:${port}/api`);
 });
 
+getClaudeSdkBridge().initialize(server);
+
 server.on("error", (error: NodeJS.ErrnoException) => {
   if (error.code === "EADDRINUSE") {
     console.error(
@@ -43,10 +46,12 @@ server.on("error", (error: NodeJS.ErrnoException) => {
 // Graceful shutdown
 process.on("SIGTERM", () => {
   console.log("🛑 Received SIGTERM, shutting down gracefully");
+  getClaudeSdkBridge().shutdown();
   process.exit(0);
 });
 
 process.on("SIGINT", () => {
   console.log("🛑 Received SIGINT, shutting down gracefully");
+  getClaudeSdkBridge().shutdown();
   process.exit(0);
 });

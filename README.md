@@ -87,6 +87,8 @@ Docker mode mounts your host kubeconfig from `${HOME}/.kube` and runs `kubectl`
 inside the container. For local clusters that expose the API server on
 `127.0.0.1`/`localhost` (for example kind), the container starts localhost TCP
 bridges to the host by default so kubeconfig can keep using local endpoints.
+It also mounts `${HOME}/.claude` and includes Claude Code CLI so the
+`Claude Code (Subscription)` provider can run without Anthropic API keys.
 
 ### Optional Bootstrap CLI (Secondary)
 
@@ -122,10 +124,18 @@ See `.env.example` for full set. Typical variables:
 
 - `PORT` (default `4000`)
 - `ANTHROPIC_API_KEY`
-- `ANTHROPIC_AUTH_TOKEN` (optional alternative to API key for Claude)
+- `ANTHROPIC_AUTH_TOKEN` (optional auth token for Claude Code CLI / headless mode)
 - `OPENAI_API_KEY`
 - `GOOGLE_API_KEY`
 - `VITE_USE_WASM_CORE`
+- `ENABLE_CLAUDE_SDK_BRIDGE` (default `false`, enables websocket bridge for local Claude Code CLI)
+- `CLAUDE_SDK_CLI_PATH` (default `claude`)
+- `CLAUDE_SDK_LOCAL_HOST` (default `127.0.0.1`)
+- `ENABLE_CLAUDE_CODE_PROVIDER` (default `true`, auto-enables local Claude Code provider when CLI is available)
+- `CLAUDE_CODE_CLI_PATH` (default `claude`)
+- `CLAUDE_CODE_TIMEOUT_MS` (default `45000`)
+- `CLAUDE_CODE_AUTH_TOKEN` (optional explicit token for Claude Code provider)
+- `CLAUDE_CODE_SETTING_SOURCES` (default `project,local` to avoid user hook side-effects in non-interactive mode)
 
 If no LLM keys are set, heuristic fallback paths remain available for core diagnosis/suggestion flows.
 
@@ -140,6 +150,15 @@ If no LLM keys are set, heuristic fallback paths remain available for core diagn
   If your kubeconfig uses `localhost`/`127.0.0.1`, keep
   `KUBEAGENTIX_PROXY_LOCALHOST_KUBECONFIG=true` (default) so the container can
   bridge localhost ports to the host endpoint.
+- Claude SDK bridge disabled:
+  Set `ENABLE_CLAUDE_SDK_BRIDGE=true`, then use:
+  `POST /api/claude-sdk/sessions` and connect browser websocket to
+  `/ws/browser/:sessionId`.
+- Claude Code provider unavailable:
+  Install Claude Code CLI and keep `ENABLE_CLAUDE_CODE_PROVIDER=true`.
+  For local usage run `claude /login`.
+  For Docker/headless usage provide `CLAUDE_CODE_AUTH_TOKEN` (or `ANTHROPIC_AUTH_TOKEN`).
+  You can also paste a Claude auth token in Settings > Claude Code provider (optional token field).
 - Port already in use:
   Run with a different port:
   `PORT=4100 npx kubeagentix-ce@latest`

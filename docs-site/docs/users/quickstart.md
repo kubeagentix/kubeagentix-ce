@@ -28,6 +28,12 @@ docker compose up --build
 Docker mode mounts host kubeconfig from `${HOME}/.kube` and includes `kubectl`
 in the image. For local clusters that use `127.0.0.1`/`localhost` API endpoints,
 the container starts localhost TCP bridges to the host by default.
+Docker compose mounts `${HOME}/.claude` (and `${HOME}/.claude.json`) for Claude
+Code metadata, but OAuth desktop login usually depends on host keychain access.
+For reliable Docker/headless Claude Code auth, set `CLAUDE_CODE_AUTH_TOKEN` (or
+`ANTHROPIC_AUTH_TOKEN`) in `.env`.
+You can also provide the same token in the app Settings under the Claude Code
+provider optional token field.
 
 ## First Workflow
 

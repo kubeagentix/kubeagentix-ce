@@ -15,7 +15,7 @@ import {
 } from "./k8s";
 import { listSkills } from "./skills";
 import { resolveScope } from "./scopeResolver";
-import { getAgentEngine } from "../agent/engine";
+import { AgentEngine, getAgentEngine } from "../agent/engine";
 import { createProvider } from "../agent/providers";
 
 const diagnosisStore = new Map<string, RcaDiagnoseResponse>();
@@ -298,18 +298,26 @@ async function runAgenticRcaAnalysis(params: {
   logSnippet: string;
   modelPreferences?: RcaDiagnoseRequest["modelPreferences"];
 }): Promise<{ output: AgenticRcaOutput | null; error?: string }> {
-  const engine = getAgentEngine();
-  if (
-    params.modelPreferences?.providerId &&
-    (params.modelPreferences?.apiKey || params.modelPreferences?.authToken)
-  ) {
+  const sharedEngine: AgentEngine = getAgentEngine();
+  let scopedEngine: AgentEngine | undefined;
+  const selectedProviderId = params.modelPreferences?.providerId;
+  const selectedApiKey = params.modelPreferences?.apiKey;
+  const selectedAuthToken = params.modelPreferences?.authToken;
+  const selectedModel = params.modelPreferences?.model;
+  const hasRequestScopedCredentials =
+    !!selectedProviderId && !!(selectedApiKey || selectedAuthToken);
+
+  if (hasRequestScopedCredentials) {
     try {
       const transientProvider = createProvider(
-        params.modelPreferences.providerId,
-        params.modelPreferences.apiKey,
-        params.modelPreferences.authToken,
+        selectedProviderId,
+        selectedApiKey,
+        selectedAuthToken,
       );
-      engine.registerProvider(transientProvider);
+      // Avoid mutating the shared singleton engine with request-scoped credentials.
+      // This prevents stale/invalid tokens from leaking into subsequent requests.
+      scopedEngine = new AgentEngine();
+      scopedEngine.registerProvider(transientProvider);
     } catch (error) {
       return {
         output: null,
@@ -335,6 +343,30 @@ async function runAgenticRcaAnalysis(params: {
   ];
 
   const errors: string[] = [];
+  const requestProfiles: Array<{
+    label: string;
+    engine: AgentEngine;
+    providerId?: string;
+    model?: string;
+  }> = [];
+
+  if (selectedProviderId) {
+    requestProfiles.push({
+      label: "selected",
+      engine: scopedEngine || sharedEngine,
+      providerId: selectedProviderId,
+      model: selectedModel,
+    });
+    requestProfiles.push({
+      label: "fallback",
+      engine: sharedEngine,
+    });
+  } else {
+    requestProfiles.push({
+      label: "",
+      engine: sharedEngine,
+    });
+  }
 
   for (const variant of promptVariants) {
     const prompt = [
@@ -360,55 +392,61 @@ async function runAgenticRcaAnalysis(params: {
       variant.logExcerpt || "(none)",
     ].join("\n");
 
-    const request: AgentRequest = {
-      conversationId: `rca-${uuidv4()}`,
-      userId: "kubeagentix-rca",
-      messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
-      context: {
-        cluster: params.clusterContext || "active-context",
-        namespace: params.resource.namespace,
-        selectedResources: [`${params.resource.kind}/${params.resource.name}`],
-        timeRange: "1h",
-      },
-      // RCA already has normalized evidence. Keep LLM synthesis tool-less for determinism.
-      toolPreferences: {
-        selectedTools: [],
-        maxToolCalls: 0,
-      },
-      modelPreferences: {
-        providerId: params.modelPreferences?.providerId,
-        model: params.modelPreferences?.model,
-        temperature: 0.1,
-        maxTokens: 1200,
-        useExtendedThinking: false,
-      },
-    };
+    for (const profile of requestProfiles) {
+      const request: AgentRequest = {
+        conversationId: `rca-${uuidv4()}`,
+        userId: "kubeagentix-rca",
+        messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
+        context: {
+          cluster: params.clusterContext || "active-context",
+          namespace: params.resource.namespace,
+          selectedResources: [`${params.resource.kind}/${params.resource.name}`],
+          timeRange: "1h",
+        },
+        // RCA already has normalized evidence. Keep LLM synthesis tool-less for determinism.
+        toolPreferences: {
+          selectedTools: [],
+          maxToolCalls: 0,
+        },
+        modelPreferences: {
+          providerId: profile.providerId,
+          model: profile.model,
+          temperature: 0.1,
+          maxTokens: 1200,
+          useExtendedThinking: false,
+        },
+      };
 
-    let text = "";
-    let error: string | undefined;
+      let text = "";
+      let error: string | undefined;
 
-    for await (const chunk of engine.processRequest(request)) {
-      if (chunk.type === "text" && chunk.text) {
-        text += chunk.text;
+      for await (const chunk of profile.engine.processRequest(request)) {
+        if (chunk.type === "text" && chunk.text) {
+          text += chunk.text;
+        }
+
+        if (chunk.type === "error") {
+          error = chunk.error?.message || "Agent RCA failed";
+          break;
+        }
       }
 
-      if (chunk.type === "error") {
-        error = chunk.error?.message || "Agent RCA failed";
-        break;
+      const attemptLabel = profile.label
+        ? `${variant.label} ${profile.label} attempt`
+        : `${variant.label} attempt`;
+
+      if (error) {
+        errors.push(`${attemptLabel}: ${error}`);
+        continue;
       }
-    }
 
-    if (error) {
-      errors.push(`${variant.label} attempt: ${error}`);
-      continue;
-    }
+      const parsed = parseAgenticRcaText(text);
+      if (parsed) {
+        return { output: parsed };
+      }
 
-    const parsed = parseAgenticRcaText(text);
-    if (parsed) {
-      return { output: parsed };
+      errors.push(`${attemptLabel}: Agent output was not parseable JSON`);
     }
-
-    errors.push(`${variant.label} attempt: Agent output was not parseable JSON`);
   }
 
   return { output: null, error: errors.join(" | ") || "Agent analysis unavailable" };

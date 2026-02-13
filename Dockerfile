@@ -34,6 +34,8 @@ RUN set -eux; \
     curl -fsSL "https://dl.k8s.io/release/${kubectl_version}/bin/linux/${kubectl_arch}/kubectl" -o /usr/local/bin/kubectl; \
     chmod +x /usr/local/bin/kubectl
 
+RUN npm install -g @anthropic-ai/claude-code@latest
+
 RUN corepack enable
 WORKDIR /app
 

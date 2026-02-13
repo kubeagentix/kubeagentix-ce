@@ -501,10 +501,7 @@ function toStreamingProvider(provider: LLMProvider): StreamingProvider | null {
 function chooseProvider(
   request: BrokerSuggestRequest,
 ): { provider: StreamingProvider | null; warning?: string } {
-  if (
-    request.modelPreferences?.providerId &&
-    (request.modelPreferences?.apiKey || request.modelPreferences?.authToken)
-  ) {
+  if (request.modelPreferences?.providerId) {
     try {
       const provider = createProvider(
         request.modelPreferences.providerId,
@@ -513,12 +510,25 @@ function chooseProvider(
       );
       return { provider: toStreamingProvider(provider) };
     } catch (error) {
+      // Fall through to configured providers and heuristic fallback.
+      const warning =
+        error instanceof Error
+          ? `Selected provider unavailable: ${error.message}`
+          : "Selected provider unavailable";
+
+      const providers = createConfiguredProviders();
+      if (providers.size === 0) {
+        return { provider: null, warning };
+      }
+
+      const prioritized =
+        providers.get("claude_code") ||
+        providers.get("claude") ||
+        providers.get("openai") ||
+        providers.get("gemini");
       return {
-        provider: null,
-        warning:
-          error instanceof Error
-            ? `Agentic suggestion unavailable: ${error.message}`
-            : "Agentic suggestion unavailable",
+        provider: prioritized ? toStreamingProvider(prioritized) : null,
+        warning,
       };
     }
   }
@@ -539,7 +549,10 @@ function chooseProvider(
   }
 
   const prioritized =
-    providers.get("claude") || providers.get("openai") || providers.get("gemini");
+    providers.get("claude_code") ||
+    providers.get("claude") ||
+    providers.get("openai") ||
+    providers.get("gemini");
   if (prioritized) {
     return { provider: toStreamingProvider(prioritized) };
   }

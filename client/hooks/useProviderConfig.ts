@@ -12,7 +12,10 @@ interface ProviderConfig {
 interface UseProviderConfigReturn {
   configs: Record<string, ProviderConfig>;
   updateConfig: (providerId: string, config: ProviderConfig) => Promise<void>;
-  testProvider: (providerId: string) => Promise<void>;
+  testProvider: (
+    providerId: string,
+    options?: { requiresCredential?: boolean },
+  ) => Promise<void>;
   isLoading: Record<string, boolean>;
 }
 
@@ -59,6 +62,13 @@ export function useProviderConfig(): UseProviderConfigReturn {
       setIsLoading((prev) => ({ ...prev, [providerId]: true }));
 
       const updated = { ...configs, [providerId]: config };
+      if (config.enabled) {
+        for (const key of Object.keys(updated)) {
+          if (key !== providerId && updated[key]?.enabled) {
+            updated[key] = { ...updated[key], enabled: false };
+          }
+        }
+      }
       setConfigs(updated);
 
       // Check if running in Tauri desktop app
@@ -81,12 +91,20 @@ export function useProviderConfig(): UseProviderConfigReturn {
     }
   };
 
-  const testProvider = async (providerId: string) => {
+  const testProvider = async (
+    providerId: string,
+    options?: { requiresCredential?: boolean },
+  ) => {
     try {
       setIsLoading((prev) => ({ ...prev, [providerId]: true }));
 
       const config = configs[providerId];
-      if (!config?.apiKey && !config?.authToken) {
+      const requiresCredential = options?.requiresCredential !== false;
+      if (
+        requiresCredential &&
+        !config?.apiKey &&
+        !config?.authToken
+      ) {
         throw new Error("API key or auth token not configured");
       }
 

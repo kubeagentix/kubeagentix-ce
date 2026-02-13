@@ -561,16 +561,31 @@ describe("Provider Factory Functions", () => {
       expect(providers.has("gemini")).toBe(false);
     });
 
-    it("should create claude provider when only auth token is available", () => {
+    it("should not auto-create claude provider from env auth token only", () => {
       delete process.env.ANTHROPIC_API_KEY;
       process.env.ANTHROPIC_AUTH_TOKEN = "env-auth-token";
 
       const providers = createConfiguredProviders();
+      expect(providers.has("claude")).toBe(false);
+    });
+
+    it("should create claude provider from explicit auth token config", () => {
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.ANTHROPIC_AUTH_TOKEN;
+
+      const providers = createConfiguredProviders({
+        claudeAuthToken: "explicit-auth-token",
+      });
       expect(providers.has("claude")).toBe(true);
     });
   });
 
   describe("createProvider", () => {
+    it("should create claude_code provider", () => {
+      const provider = createProvider("claude_code");
+      expect(provider.id).toBe("claude_code");
+    });
+
     it("should create claude provider", () => {
       const provider = createProvider("claude");
       expect(provider.id).toBe("claude");
@@ -594,7 +609,8 @@ describe("Provider Factory Functions", () => {
   describe("getProviderMetadata", () => {
     it("should return metadata for all providers", () => {
       const metadata = getProviderMetadata();
-      expect(metadata).toHaveLength(3);
+      expect(metadata).toHaveLength(4);
+      expect(metadata.map((m) => m.id)).toContain("claude_code");
       expect(metadata.map((m) => m.id)).toContain("claude");
       expect(metadata.map((m) => m.id)).toContain("openai");
       expect(metadata.map((m) => m.id)).toContain("gemini");

@@ -37,6 +37,8 @@ interface ProviderCardProps {
     pricing: string;
     features: string[];
     icon: string;
+    requiresCredential?: boolean;
+    supportsOptionalCredential?: boolean;
   };
   config?: ProviderConfig;
   onConfigChange: (config: ProviderConfig) => void;
@@ -61,6 +63,9 @@ export function ProviderCard({
   );
   const [testMessage, setTestMessage] = useState("");
 
+  const requiresCredential = provider.requiresCredential !== false;
+  const supportsOptionalCredential = provider.supportsOptionalCredential === true;
+  const showCredentialInput = requiresCredential || supportsOptionalCredential;
   const handleTest = async () => {
     try {
       setTestStatus("idle");
@@ -77,13 +82,20 @@ export function ProviderCard({
     }
   };
 
-  const hasCredential = !!config.apiKey || !!config.authToken;
+  const hasCredential =
+    !requiresCredential || !!config.apiKey || !!config.authToken;
   const credentialLabel =
-    provider.id === "claude" ? "API Key or Auth Token" : "API Key";
+    provider.id === "claude_code"
+      ? "Auth Token (Optional)"
+      : provider.id === "claude"
+        ? "API Key or Auth Token"
+        : "API Key";
   const credentialPlaceholder =
-    provider.id === "claude"
-      ? "Paste your Anthropic API key or auth token..."
-      : "Paste your API key here...";
+    provider.id === "claude_code"
+      ? "Paste Claude auth token for Docker/headless use..."
+      : provider.id === "claude"
+        ? "Paste your Anthropic API key or auth token..."
+        : "Paste your API key here...";
 
   const iconMap: Record<string, React.ReactNode> = {
     brain: <Brain className="w-8 h-8 text-orange-400" />,
@@ -107,10 +119,16 @@ export function ProviderCard({
           <div className="text-left flex-1">
             <div className="flex items-center gap-2 mb-1">
               <h3 className="font-semibold text-white">{provider.name}</h3>
-              {hasCredential && (
+              {config.enabled && (
                 <div className="flex items-center gap-1 text-green-400 text-xs">
                   <Check className="w-3 h-3" />
-                  <span>Configured</span>
+                  <span>Preferred</span>
+                </div>
+              )}
+              {!config.enabled && hasCredential && (
+                <div className="flex items-center gap-1 text-green-400 text-xs">
+                  <Check className="w-3 h-3" />
+                  <span>Ready</span>
                 </div>
               )}
             </div>
@@ -152,7 +170,36 @@ export function ProviderCard({
             </div>
           </div>
 
+          <div className="flex items-center justify-between bg-zinc-900 rounded-lg border border-zinc-800 p-3">
+            <div>
+              <div className="text-sm font-semibold text-zinc-200">
+                Use For Tasks
+              </div>
+              <div className="text-xs text-zinc-500">
+                Marks this provider as your default for diagnosis and suggestions.
+              </div>
+            </div>
+            <Button
+              onClick={() =>
+                onConfigChange({
+                  ...config,
+                  enabled: true,
+                  model: config.model || provider.models[0]?.id,
+                })
+              }
+              variant={config.enabled ? "secondary" : "default"}
+              className={
+                config.enabled
+                  ? "bg-green-900 text-green-200 hover:bg-green-900"
+                  : "bg-sky-400/60 hover:bg-sky-400/70 text-white"
+              }
+            >
+              {config.enabled ? "Preferred" : "Set Preferred"}
+            </Button>
+          </div>
+
           {/* API Key */}
+          {showCredentialInput && (
           <div>
             <label className="text-sm font-semibold text-zinc-300 flex items-center gap-2 mb-2">
               <Lock className="w-4 h-4" />
@@ -165,11 +212,17 @@ export function ProviderCard({
                   placeholder={credentialPlaceholder}
                   value={config.apiKey || config.authToken || ""}
                   onChange={(e) =>
-                    onConfigChange({
-                      ...config,
-                      apiKey: e.target.value,
-                      authToken: undefined,
-                    })
+                    provider.id === "claude_code"
+                      ? onConfigChange({
+                          ...config,
+                          authToken: e.target.value,
+                          apiKey: undefined,
+                        })
+                      : onConfigChange({
+                          ...config,
+                          apiKey: e.target.value,
+                          authToken: undefined,
+                        })
                   }
                   className="bg-zinc-800 border-zinc-700 text-white placeholder-zinc-500"
                 />
@@ -196,10 +249,15 @@ export function ProviderCard({
               )}
             </div>
             <p className="text-xs text-zinc-500 mt-2">
-              🔒 Your credential is stored securely in your system keychain and
-              never sent to our servers.
+              🔒 Your credential is stored securely in your system keychain.
             </p>
+            {provider.id === "claude_code" && (
+              <p className="text-xs text-zinc-500 mt-1">
+                Optional fallback when Claude local login is unavailable.
+              </p>
+            )}
           </div>
+          )}
 
           {/* Model Selection */}
           {hasCredential && (
@@ -275,7 +333,7 @@ export function ProviderCard({
               {/* Test Button */}
               <Button
                 onClick={handleTest}
-                disabled={isLoading || !config.apiKey}
+                disabled={isLoading || (requiresCredential && !hasCredential)}
                 className="w-full bg-sky-400/60 hover:bg-sky-400/70 text-white"
               >
                 <Zap className="w-4 h-4 mr-2" />
@@ -303,7 +361,7 @@ export function ProviderCard({
           )}
 
           {/* Info when no credential */}
-          {!hasCredential && (
+          {requiresCredential && !hasCredential && (
             <div className="p-4 bg-zinc-800 rounded-lg border border-zinc-700">
               <p className="text-sm text-zinc-300">
                 ✨ Add a credential to configure this provider and make it
