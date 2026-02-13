@@ -84,6 +84,10 @@ export interface RcaDiagnoseResponse {
     attempted: boolean;
     used: boolean;
     fallbackReason?: string;
+    providerId?: string;
+    providerName?: string;
+    model?: string;
+    attempt?: string;
   };
   generatedAt: number;
 }

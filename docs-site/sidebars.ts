@@ -23,6 +23,7 @@ const sidebars: SidebarsConfig = {
         'developers/runtime-architecture',
         'developers/rca-engine',
         'developers/cli-first-agent-ops',
+        'developers/claude-code-subscription-integration',
         'developers/workspace-evolution',
         'developers/security-devsecops',
       ],

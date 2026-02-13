@@ -107,6 +107,9 @@ export interface ResponseSummary {
   toolCallCount: number;
   executionTimeMs: number;
   tokensUsed?: number;
+  providerId?: string;
+  providerName?: string;
+  model?: string;
 }
 
 /**

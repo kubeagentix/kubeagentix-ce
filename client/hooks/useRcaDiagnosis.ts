@@ -1,6 +1,5 @@
 import { useCallback, useState } from "react";
 import { RcaDiagnoseResponse, RcaResourceRef } from "@shared/rca";
-import { getStoredModelPreferences } from "@/lib/modelPreferences";
 import { useWorkspaceScope } from "@/lib/workspaceScope";
 
 export function useRcaDiagnosis() {
@@ -14,28 +13,6 @@ export function useRcaDiagnosis() {
       setLoading(true);
       setError(null);
 
-      let modelPreferences:
-        | {
-            providerId?: string;
-            model?: string;
-            apiKey?: string;
-            authToken?: string;
-          }
-        | undefined;
-
-      modelPreferences = getStoredModelPreferences();
-      // Align QuickDx with Chat behavior: if Claude Code is selected but no
-      // explicit credential override is provided, do not hard-pin provider.
-      // This allows server-side provider selection/fallback instead of forcing
-      // an unauthenticated claude_code path.
-      if (
-        modelPreferences?.providerId === "claude_code" &&
-        !modelPreferences.apiKey &&
-        !modelPreferences.authToken
-      ) {
-        modelPreferences = undefined;
-      }
-
       const response = await fetch("/api/rca/diagnose", {
         method: "POST",
         headers: {
@@ -44,7 +21,6 @@ export function useRcaDiagnosis() {
         body: JSON.stringify({
           resource,
           useAgentic: true,
-          modelPreferences,
           scopeId: scope.scopeId,
           clusterContext: scope.clusterContext,
           workingNamespace: scope.workingNamespace,

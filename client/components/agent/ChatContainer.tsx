@@ -30,6 +30,7 @@ export function ChatContainer({
   integrationProfileId,
   initialPrompt,
 }: ChatContainerProps) {
+  const showProviderDebug = import.meta.env.VITE_SHOW_PROVIDER_DEBUG !== "false";
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const initialPromptSentRef = useRef(false);
@@ -159,6 +160,12 @@ export function ChatContainer({
 
       {/* Input Area */}
       <div className="border-t border-zinc-800 bg-zinc-900 p-4">
+        {showProviderDebug && agent.lastRunDebug?.providerId && (
+          <div className="mb-2 text-xs text-sky-300/90">
+            Debug: provider={agent.lastRunDebug.providerId}
+            {agent.lastRunDebug.model ? ` model=${agent.lastRunDebug.model}` : ""}
+          </div>
+        )}
         <ChatInput
           onSubmit={handleSendMessage}
           disabled={agent.isLoading}

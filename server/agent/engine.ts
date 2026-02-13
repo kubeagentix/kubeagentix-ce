@@ -166,7 +166,12 @@ export class AgentEngine {
 
       // Select provider and tools
       const provider = this.selectProvider(request);
-      const availableTools = this.filterTools(request);
+      const selectedModel = request.modelPreferences?.model || provider.defaultModel;
+      const useCompatibilityToolCalls =
+        !provider.supportsToolUse && provider.id.startsWith("claude_code");
+      const availableTools = provider.supportsToolUse || useCompatibilityToolCalls
+        ? this.filterTools(request)
+        : [];
 
       // Build system prompt
       const systemPrompt = this.buildSystemPrompt(availableTools);
@@ -184,6 +189,17 @@ export class AgentEngine {
       let toolCalls: ToolCall[] = [];
 
       for await (const chunk of this.callLLM(provider, llmRequest)) {
+        // For compatibility providers, delay text emission until we parse
+        // pseudo function-call markup into executable tool calls.
+        if (
+          useCompatibilityToolCalls &&
+          chunk.type === "text" &&
+          chunk.text
+        ) {
+          responseContent += chunk.text;
+          continue;
+        }
+
         yield chunk;
 
         // Extract tool calls and text
@@ -191,6 +207,35 @@ export class AgentEngine {
           responseContent += chunk.text;
         } else if (chunk.type === "tool_call" && chunk.toolCall) {
           toolCalls.push(chunk.toolCall);
+        }
+      }
+
+      if (useCompatibilityToolCalls && toolCalls.length === 0) {
+        const compatToolCalls = this.parseCompatibilityToolCalls(
+          responseContent,
+          availableTools,
+        );
+        if (compatToolCalls.length > 0) {
+          toolCalls = compatToolCalls;
+          // Do not persist pseudo function-call markup into conversation history.
+          responseContent = "";
+          for (const toolCall of compatToolCalls) {
+            yield {
+              type: "tool_call",
+              chunkId: uuidv4(),
+              timestamp: Date.now(),
+              toolCall,
+            };
+          }
+        } else if (responseContent) {
+          // No pseudo tool calls found: emit buffered assistant text.
+          yield {
+            type: "text",
+            chunkId: uuidv4(),
+            timestamp: Date.now(),
+            text: responseContent,
+            isDone: true,
+          };
         }
       }
 
@@ -248,6 +293,9 @@ export class AgentEngine {
         summary: {
           toolCallCount: toolCalls.length,
           executionTimeMs: 0, // TODO: Track timing
+          providerId: provider.id,
+          providerName: provider.name,
+          model: selectedModel,
         },
       };
     } catch (error) {
@@ -429,6 +477,20 @@ export class AgentEngine {
    * Build system prompt for the LLM
    */
   private buildSystemPrompt(tools: ToolDefinition[]): string {
+    if (tools.length === 0) {
+      return `You are an expert Kubernetes operations assistant. Your role is to help diagnose and resolve Kubernetes cluster issues.
+
+In this run, no executable tools are available. Provide direct guidance based on the user prompt and context only.
+
+When investigating an issue:
+1. Explain what additional facts would be needed
+2. Provide safe, concrete next steps the user can run
+3. Never suggest dangerous operations without explicit user confirmation
+4. For namespace discovery, suggest namespace-focused kubectl commands
+
+Always prioritize safety and clarity.`;
+    }
+
     return `You are an expert Kubernetes operations assistant. Your role is to help diagnose and resolve Kubernetes cluster issues.
 
 You have access to the following tools:
@@ -444,6 +506,57 @@ When investigating an issue:
 6. For namespace discovery use namespace-focused tools, and for cross-namespace checks set namespace to "all"
 
 Always prioritize safety and clarity.`;
+  }
+
+  private parseCompatibilityToolCalls(
+    text: string,
+    tools: ToolDefinition[],
+  ): ToolCall[] {
+    if (!text || tools.length === 0) {
+      return [];
+    }
+
+    const allowedToolNames = new Set(tools.map((tool) => tool.name));
+    const toolCalls: ToolCall[] = [];
+    const invokeRegex = /<invoke\s+name="([^"]+)">([\s\S]*?)<\/invoke>/g;
+    let invokeMatch: RegExpExecArray | null;
+
+    while ((invokeMatch = invokeRegex.exec(text))) {
+      const toolName = invokeMatch[1];
+      if (!allowedToolNames.has(toolName)) {
+        continue;
+      }
+
+      const args: Record<string, any> = {};
+      const body = invokeMatch[2] || "";
+      const parameterRegex =
+        /<parameter\s+name="([^"]+)">([\s\S]*?)<\/parameter>/g;
+      let parameterMatch: RegExpExecArray | null;
+
+      while ((parameterMatch = parameterRegex.exec(body))) {
+        const key = parameterMatch[1];
+        const rawValue = parameterMatch[2].trim();
+        if (!key) continue;
+        if (!rawValue) {
+          args[key] = "";
+          continue;
+        }
+
+        try {
+          args[key] = JSON.parse(rawValue);
+        } catch {
+          args[key] = rawValue;
+        }
+      }
+
+      toolCalls.push({
+        id: `compat-${uuidv4()}`,
+        name: toolName,
+        arguments: args,
+      });
+    }
+
+    return toolCalls;
   }
 
   /**

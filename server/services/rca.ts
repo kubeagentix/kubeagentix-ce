@@ -26,6 +26,13 @@ interface AgenticRcaOutput {
   analysisNote?: string;
 }
 
+interface AgenticRunDebug {
+  providerId?: string;
+  providerName?: string;
+  model?: string;
+  attempt?: string;
+}
+
 interface HeuristicRcaOutput {
   probableRootCause: string;
   hypotheses: RcaHypothesis[];
@@ -297,7 +304,7 @@ async function runAgenticRcaAnalysis(params: {
   metricsSummary: string;
   logSnippet: string;
   modelPreferences?: RcaDiagnoseRequest["modelPreferences"];
-}): Promise<{ output: AgenticRcaOutput | null; error?: string }> {
+}): Promise<{ output: AgenticRcaOutput | null; error?: string; debug?: AgenticRunDebug }> {
   const sharedEngine: AgentEngine = getAgentEngine();
   let scopedEngine: AgentEngine | undefined;
   const selectedProviderId = params.modelPreferences?.providerId;
@@ -419,6 +426,7 @@ async function runAgenticRcaAnalysis(params: {
 
       let text = "";
       let error: string | undefined;
+      let debug: AgenticRunDebug | undefined;
 
       for await (const chunk of profile.engine.processRequest(request)) {
         if (chunk.type === "text" && chunk.text) {
@@ -428,6 +436,14 @@ async function runAgenticRcaAnalysis(params: {
         if (chunk.type === "error") {
           error = chunk.error?.message || "Agent RCA failed";
           break;
+        }
+
+        if (chunk.type === "complete") {
+          debug = {
+            providerId: chunk.summary?.providerId,
+            providerName: chunk.summary?.providerName,
+            model: chunk.summary?.model,
+          };
         }
       }
 
@@ -442,7 +458,13 @@ async function runAgenticRcaAnalysis(params: {
 
       const parsed = parseAgenticRcaText(text);
       if (parsed) {
-        return { output: parsed };
+        return {
+          output: parsed,
+          debug: {
+            ...debug,
+            attempt: attemptLabel,
+          },
+        };
       }
 
       errors.push(`${attemptLabel}: Agent output was not parseable JSON`);
@@ -1575,7 +1597,7 @@ export async function diagnoseResource(
   const analysisNotes = [...heuristic.analysisNotes];
 
   if (request.useAgentic !== false) {
-    const { output, error } = await runAgenticRcaAnalysis({
+    const { output, error, debug } = await runAgenticRcaAnalysis({
       resource: request.resource,
       clusterContext,
       statusPhase: described.resource?.status?.phase,
@@ -1594,6 +1616,18 @@ export async function diagnoseResource(
       analysisNotes.push("Agentic analysis enriched heuristic diagnosis.");
       if (output.analysisNote) {
         analysisNotes.push(output.analysisNote);
+      }
+      if (debug?.providerId) {
+        agenticMeta.providerId = debug.providerId;
+      }
+      if (debug?.providerName) {
+        agenticMeta.providerName = debug.providerName;
+      }
+      if (debug?.model) {
+        agenticMeta.model = debug.model;
+      }
+      if (debug?.attempt) {
+        agenticMeta.attempt = debug.attempt;
       }
     } else {
       agenticMeta.fallbackReason = error || "Agent analysis unavailable";

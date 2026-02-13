@@ -25,6 +25,11 @@ interface UseAgentState {
   currentTool?: ToolCall;
   error?: AgentError;
   conversationId: string;
+  lastRunDebug?: {
+    providerId?: string;
+    providerName?: string;
+    model?: string;
+  };
 }
 
 /**
@@ -181,6 +186,11 @@ export function useAgent(options: UseAgentOptions = {}) {
                   currentTool: chunk.toolCall,
                 }));
               } else if (chunk.type === "complete") {
+                const completionDebug = {
+                  providerId: chunk.summary?.providerId,
+                  providerName: chunk.summary?.providerName,
+                  model: chunk.summary?.model,
+                };
                 // Add assistant message to history
                 if (assistantMessage) {
                   const updatedMessages: AgentMessage[] = [
@@ -197,12 +207,20 @@ export function useAgent(options: UseAgentOptions = {}) {
                     messages: updatedMessages,
                     isLoading: false,
                     currentTool: undefined,
+                    lastRunDebug: completionDebug,
                   }));
 
                   options.onComplete?.(updatedMessages);
 
                   // Save conversation locally
                   saveConversationLocally(updatedMessages);
+                } else {
+                  setState((prev) => ({
+                    ...prev,
+                    isLoading: false,
+                    currentTool: undefined,
+                    lastRunDebug: completionDebug,
+                  }));
                 }
               } else if (chunk.type === "error" && chunk.error) {
                 const error = new AgentError(
@@ -331,6 +349,7 @@ export function useAgent(options: UseAgentOptions = {}) {
     currentTool: state.currentTool,
     error: state.error,
     conversationId: state.conversationId,
+    lastRunDebug: state.lastRunDebug,
 
     // Context management
     context,

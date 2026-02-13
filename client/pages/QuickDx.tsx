@@ -103,6 +103,7 @@ export default function QuickDx() {
 
   const topConfidence = diagnosis?.hypotheses?.[0]?.confidence || 0;
   const isHealthyDiagnosis = diagnosis?.hypotheses?.[0]?.id === "healthy-running";
+  const showProviderDebug = import.meta.env.VITE_SHOW_PROVIDER_DEBUG !== "false";
 
   return (
     <AppShell mode="quickdx">
@@ -203,6 +204,17 @@ export default function QuickDx() {
                       ? "Agentic + Heuristic"
                       : "Heuristic fallback"}
                   </p>
+                  {showProviderDebug &&
+                    diagnosis.agentic?.used &&
+                    diagnosis.agentic?.providerId && (
+                      <p className="text-xs text-sky-300/90 mt-1">
+                        Debug: provider={diagnosis.agentic.providerId}
+                        {diagnosis.agentic.model ? ` model=${diagnosis.agentic.model}` : ""}
+                        {diagnosis.agentic.attempt
+                          ? ` via ${diagnosis.agentic.attempt}`
+                          : ""}
+                      </p>
+                    )}
                   {diagnosis.analysisMode === "heuristic" &&
                     diagnosis.agentic?.fallbackReason &&
                     !isHealthyDiagnosis && (

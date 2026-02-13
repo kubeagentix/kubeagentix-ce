@@ -6,7 +6,7 @@ services:
     image: kubeagentix/kubeagentix-ce:local
     container_name: kubeagentix-ce
     ports:
-      - "4000:4000"
+      - "4002:4000"
     environment:
       NODE_ENV: production
       PORT: 4000
