@@ -37,7 +37,7 @@ Current status:
 
 - ✅ Phase 0 completed
 - ✅ Phase 1 completed
-- 🚧 Phase 2 in progress
+- ✅ Phase 2 completed
 - ⏳ Phase 3 not started
 - ⏳ Phase 4 not started
 - ⏳ Phase 5 not started
@@ -106,6 +106,7 @@ Implementation notes:
 - Incident page now supports manual incident creation, inbox selection, timeline rendering, and action proposal/approve/execute flow.
 - QuickDx now supports incident promotion via create + diagnosis attach and deep-links to the created incident.
 - Dashboard now surfaces active incidents and direct navigation into the incident inbox.
+- UI tests now cover inbox filter calls, detail/timeline ordering, and approval-gated action flow.
 
 Exit criteria:
 
