@@ -10,6 +10,7 @@ import {
   AgentError,
   StoredConversation,
 } from "@shared/coordination";
+import { getStoredModelPreferences } from "@/lib/modelPreferences";
 
 interface UseAgentOptions {
   conversationId?: string;
@@ -113,6 +114,10 @@ export function useAgent(options: UseAgentOptions = {}) {
       abortControllerRef.current = new AbortController();
 
       try {
+        const storedModelPreferences = getStoredModelPreferences();
+        const effectiveModelPreferences =
+          storedModelPreferences || modelPreferences;
+
         // Build request
         const request: AgentRequest = {
           conversationId: state.conversationId,
@@ -120,7 +125,7 @@ export function useAgent(options: UseAgentOptions = {}) {
           messages: newMessages,
           context,
           toolPreferences,
-          modelPreferences,
+          modelPreferences: effectiveModelPreferences,
         };
 
         // Send request and stream response

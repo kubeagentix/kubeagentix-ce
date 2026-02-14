@@ -124,7 +124,7 @@ See `.env.example` for full set. Typical variables:
 
 - `PORT` (default `4000`)
 - `ANTHROPIC_API_KEY`
-- `ANTHROPIC_AUTH_TOKEN` (optional auth token for Claude Code CLI / headless mode)
+- `ANTHROPIC_AUTH_TOKEN` (legacy auth token alias; OAuth users should prefer `CLAUDE_CODE_OAUTH_TOKEN`)
 - `OPENAI_API_KEY`
 - `GOOGLE_API_KEY`
 - `VITE_USE_WASM_CORE`
@@ -134,7 +134,8 @@ See `.env.example` for full set. Typical variables:
 - `ENABLE_CLAUDE_CODE_PROVIDER` (default `true`, auto-enables local Claude Code provider when CLI is available)
 - `CLAUDE_CODE_CLI_PATH` (default `claude`)
 - `CLAUDE_CODE_TIMEOUT_MS` (default `45000`)
-- `CLAUDE_CODE_AUTH_TOKEN` (optional explicit token for Claude Code provider)
+- `CLAUDE_CODE_OAUTH_TOKEN` (optional subscription/OAuth token for Claude Code provider, headless)
+- `CLAUDE_CODE_AUTH_TOKEN` (legacy alias, still accepted)
 - `CLAUDE_CODE_SETTING_SOURCES` (default `project,local` to avoid user hook side-effects in non-interactive mode)
 
 If no LLM keys are set, heuristic fallback paths remain available for core diagnosis/suggestion flows.
@@ -157,7 +158,11 @@ If no LLM keys are set, heuristic fallback paths remain available for core diagn
 - Claude Code provider unavailable:
   Install Claude Code CLI and keep `ENABLE_CLAUDE_CODE_PROVIDER=true`.
   For local usage run `claude /login`.
-  For Docker/headless usage provide `CLAUDE_CODE_AUTH_TOKEN` (or `ANTHROPIC_AUTH_TOKEN`).
+  For Docker/headless usage provide `CLAUDE_CODE_OAUTH_TOKEN` (subscription token)
+  or `ANTHROPIC_API_KEY`.
+  You can also keep container env empty and paste token in Settings > Claude Code provider;
+  the app now forwards this token per request (without requiring env injection).
+  If auth still fails in Docker, set `CLAUDE_CODE_OAUTH_TOKEN` explicitly and recreate containers.
   You can also paste a Claude auth token in Settings > Claude Code provider (optional token field).
 - Port already in use:
   Run with a different port:

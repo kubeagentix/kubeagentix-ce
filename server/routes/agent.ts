@@ -249,7 +249,7 @@ export const handleTestProvider: RequestHandler = async (req, res) => {
       const normalizedError =
         errorMessage ||
         (providerId === "claude_code"
-          ? "Claude Code provider did not return output. Ensure Claude CLI is logged in (`claude /login`) or provide CLAUDE_CODE_AUTH_TOKEN in Docker."
+          ? "Claude Code provider did not return output. Ensure Claude CLI is logged in (`claude /login`) or provide CLAUDE_CODE_OAUTH_TOKEN in Docker."
           : "Provider did not respond");
       return res.status(500).json({
         status: "error",

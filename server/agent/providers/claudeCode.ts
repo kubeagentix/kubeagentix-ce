@@ -38,6 +38,23 @@ function parseBoolean(value: string | undefined, defaultValue: boolean): boolean
   return normalized === "1" || normalized === "true" || normalized === "yes";
 }
 
+function normalizeAuthToken(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const prefixed = trimmed.match(/^authToken\s*:\s*(.+)$/i);
+  const unwrapped = (prefixed?.[1] || trimmed)
+    .trim()
+    .replace(/^["']+|["']+$/g, "");
+
+  return unwrapped || undefined;
+}
+
+function isAnthropicApiKey(value: string | undefined): boolean {
+  return typeof value === "string" && /^sk-ant-/i.test(value.trim());
+}
+
 export class ClaudeCodeProvider implements LLMProvider {
   private static executionQueue: Promise<void> = Promise.resolve();
 
@@ -71,7 +88,7 @@ export class ClaudeCodeProvider implements LLMProvider {
     this.timeoutMs = Number(process.env.CLAUDE_CODE_TIMEOUT_MS || 45000);
     this.settingSources =
       process.env.CLAUDE_CODE_SETTING_SOURCES?.trim() || "project,local";
-    this.authTokenOverride = authToken?.trim() || undefined;
+    this.authTokenOverride = normalizeAuthToken(authToken);
     this.assertCliAvailable();
   }
 
@@ -423,10 +440,66 @@ export class ClaudeCodeProvider implements LLMProvider {
 
   private buildEnv(): NodeJS.ProcessEnv {
     const env = { ...process.env };
-    if (this.authTokenOverride) {
-      env.ANTHROPIC_AUTH_TOKEN = this.authTokenOverride;
-    } else if (!env.ANTHROPIC_AUTH_TOKEN && env.CLAUDE_CODE_AUTH_TOKEN) {
-      env.ANTHROPIC_AUTH_TOKEN = env.CLAUDE_CODE_AUTH_TOKEN;
+    const overrideToken = normalizeAuthToken(this.authTokenOverride);
+    const envClaudeCodeOAuthToken = normalizeAuthToken(env.CLAUDE_CODE_OAUTH_TOKEN);
+    const envClaudeCodeToken = normalizeAuthToken(env.CLAUDE_CODE_AUTH_TOKEN);
+    const envAnthropicToken = normalizeAuthToken(env.ANTHROPIC_AUTH_TOKEN);
+    const envAnthropicApiKey = env.ANTHROPIC_API_KEY?.trim() || undefined;
+
+    if (overrideToken) {
+      // Claude Code subscription tokens should be passed via CLAUDE_CODE_OAUTH_TOKEN.
+      // Keep CLAUDE_CODE_AUTH_TOKEN as legacy alias for backward compatibility.
+      if (isAnthropicApiKey(overrideToken)) {
+        env.ANTHROPIC_API_KEY = overrideToken;
+      } else {
+        env.CLAUDE_CODE_OAUTH_TOKEN = overrideToken;
+        env.CLAUDE_CODE_AUTH_TOKEN = overrideToken;
+      }
+    } else {
+      if (envClaudeCodeOAuthToken) {
+        env.CLAUDE_CODE_OAUTH_TOKEN = envClaudeCodeOAuthToken;
+      }
+      if (envClaudeCodeToken) {
+        env.CLAUDE_CODE_AUTH_TOKEN = envClaudeCodeToken;
+      }
+      if (envAnthropicToken) {
+        env.ANTHROPIC_AUTH_TOKEN = envAnthropicToken;
+      }
+      if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
+        if (env.CLAUDE_CODE_AUTH_TOKEN && !isAnthropicApiKey(env.CLAUDE_CODE_AUTH_TOKEN)) {
+          env.CLAUDE_CODE_OAUTH_TOKEN = env.CLAUDE_CODE_AUTH_TOKEN;
+        } else if (
+          env.ANTHROPIC_AUTH_TOKEN &&
+          !isAnthropicApiKey(env.ANTHROPIC_AUTH_TOKEN)
+        ) {
+          env.CLAUDE_CODE_OAUTH_TOKEN = env.ANTHROPIC_AUTH_TOKEN;
+        }
+      }
+      if (
+        !env.ANTHROPIC_API_KEY &&
+        envClaudeCodeToken &&
+        isAnthropicApiKey(envClaudeCodeToken)
+      ) {
+        env.ANTHROPIC_API_KEY = envClaudeCodeToken;
+      }
+      if (
+        !env.ANTHROPIC_API_KEY &&
+        envAnthropicToken &&
+        isAnthropicApiKey(envAnthropicToken)
+      ) {
+        env.ANTHROPIC_API_KEY = envAnthropicToken;
+      }
+    }
+
+    // Avoid passing ANTHROPIC_AUTH_TOKEN to Claude Code CLI when OAuth token is provided,
+    // which can force an unsupported auth path.
+    if (env.CLAUDE_CODE_OAUTH_TOKEN) {
+      delete env.ANTHROPIC_AUTH_TOKEN;
+    }
+
+    // Ensure at least one valid auth signal is present if we were given a usable token.
+    if (!env.ANTHROPIC_API_KEY && !env.CLAUDE_CODE_OAUTH_TOKEN && overrideToken) {
+      env.CLAUDE_CODE_OAUTH_TOKEN = overrideToken;
     }
 
     if (this.shouldUseIsolatedConfig(env)) {
@@ -442,6 +515,7 @@ export class ClaudeCodeProvider implements LLMProvider {
     }
     return !!(
       this.authTokenOverride ||
+      env.CLAUDE_CODE_OAUTH_TOKEN ||
       env.CLAUDE_CODE_AUTH_TOKEN ||
       env.ANTHROPIC_AUTH_TOKEN
     );
@@ -602,7 +676,14 @@ export class ClaudeCodeProvider implements LLMProvider {
       lower.includes("invalid bearer token") ||
       lower.includes("failed to authenticate")
     ) {
-      return "Claude Code is not authenticated. Run `claude /login` in this runtime, or set `CLAUDE_CODE_AUTH_TOKEN`/`ANTHROPIC_AUTH_TOKEN` for headless Docker usage.";
+      if (this.authTokenOverride) {
+        return "Provided Claude auth token was rejected. Verify the token is valid/non-expired and use it as `CLAUDE_CODE_OAUTH_TOKEN` (or paste it in Settings) for Docker/headless usage.";
+      }
+      return "Claude Code is not authenticated. Run `claude /login` in this runtime, or set `CLAUDE_CODE_OAUTH_TOKEN` (subscription token) / `ANTHROPIC_API_KEY` for headless Docker usage.";
+    }
+
+    if (lower.includes("oauth authentication is currently not supported")) {
+      return "OAuth token was sent via an unsupported auth path. Use `CLAUDE_CODE_OAUTH_TOKEN` for Claude Code subscription auth (not `ANTHROPIC_AUTH_TOKEN`).";
     }
 
     if (

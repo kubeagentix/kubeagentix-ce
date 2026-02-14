@@ -30,10 +30,14 @@ in the image. For local clusters that use `127.0.0.1`/`localhost` API endpoints,
 the container starts localhost TCP bridges to the host by default.
 Docker compose mounts `${HOME}/.claude` (and `${HOME}/.claude.json`) for Claude
 Code metadata, but OAuth desktop login usually depends on host keychain access.
-For reliable Docker/headless Claude Code auth, set `CLAUDE_CODE_AUTH_TOKEN` (or
-`ANTHROPIC_AUTH_TOKEN`) in `.env`.
+For reliable Docker/headless Claude Code auth, set `CLAUDE_CODE_OAUTH_TOKEN` in
+`.env` (or use `ANTHROPIC_API_KEY`).
 You can also provide the same token in the app Settings under the Claude Code
 provider optional token field.
+If token auth fails in Docker, set `CLAUDE_CODE_OAUTH_TOKEN` explicitly and restart:
+`docker compose down && docker compose up --build`.
+If you prefer not to inject token into container env, leave env token vars empty
+and use the Settings token field; KubeAgentiX forwards that token per request.
 
 ## First Workflow
 

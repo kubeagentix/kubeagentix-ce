@@ -48,7 +48,8 @@ Implementation: `server/agent/providers/claudeCode.ts`
 
 For environments where interactive login is not feasible:
 
-- Set `CLAUDE_CODE_AUTH_TOKEN` or `ANTHROPIC_AUTH_TOKEN`.
+- Set `CLAUDE_CODE_OAUTH_TOKEN` (preferred).
+- `CLAUDE_CODE_AUTH_TOKEN` / `ANTHROPIC_AUTH_TOKEN` are treated as legacy aliases.
 - Optional in-app override field is supported for `claude_code` settings.
 
 The provider normalizes auth env and can isolate config directory for token-based runs.
@@ -252,4 +253,3 @@ To verify Claude subscription-backed runtime is actually being used:
    - token override mode
    - Docker mode
    - fallback behavior with multi-provider env.
-

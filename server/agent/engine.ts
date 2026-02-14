@@ -15,6 +15,7 @@ import {
   ClaudeProvider,
   OpenAIProvider,
   GeminiProvider,
+  createProvider,
   createConfiguredProviders,
 } from "./providers";
 
@@ -151,6 +152,33 @@ export class AgentEngine {
   }
 
   /**
+   * Resolve provider for a single request, optionally using transient
+   * credentials supplied in modelPreferences (without mutating global providers).
+   */
+  private resolveProvider(request: AgentRequest): StreamingProvider {
+    const preferredProviderId = request.modelPreferences?.providerId;
+    const transientApiKey = request.modelPreferences?.apiKey;
+    const transientAuthToken = request.modelPreferences?.authToken;
+
+    if (
+      preferredProviderId &&
+      (transientApiKey || transientAuthToken)
+    ) {
+      try {
+        return createProvider(
+          preferredProviderId,
+          transientApiKey,
+          transientAuthToken,
+        ) as StreamingProvider;
+      } catch {
+        // Fall back to configured providers.
+      }
+    }
+
+    return this.selectProvider(request);
+  }
+
+  /**
    * Process a request and return async generator of response chunks
    */
   async *processRequest(
@@ -165,7 +193,7 @@ export class AgentEngine {
       history = [...history, ...request.messages];
 
       // Select provider and tools
-      const provider = this.selectProvider(request);
+      const provider = this.resolveProvider(request);
       const selectedModel = request.modelPreferences?.model || provider.defaultModel;
       const useCompatibilityToolCalls =
         !provider.supportsToolUse && provider.id.startsWith("claude_code");
