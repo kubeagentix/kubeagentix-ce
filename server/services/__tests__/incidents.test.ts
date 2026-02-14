@@ -245,4 +245,210 @@ describe("IncidentService", () => {
     expect(newer.status).toBe("resolved");
     expect(newer.severity).toBe("critical");
   });
+
+  it("builds layered investigation graph across edge/app/platform/rbac", async () => {
+    const resourcePayloads: Record<string, { items: any[] }> = {
+      "kubectl get ingress -A -o json": {
+        items: [
+          {
+            metadata: { namespace: "prod", name: "checkout-ing" },
+            spec: {
+              rules: [
+                {
+                  http: {
+                    paths: [
+                      { backend: { service: { name: "checkout-svc" } } },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      "kubectl get services -A -o json": {
+        items: [
+          {
+            metadata: { namespace: "prod", name: "checkout-svc" },
+            spec: { selector: { app: "checkout" } },
+          },
+        ],
+      },
+      "kubectl get endpoints -A -o json": {
+        items: [{ metadata: { namespace: "prod", name: "checkout-svc" } }],
+      },
+      "kubectl get deployments -A -o json": {
+        items: [
+          {
+            kind: "Deployment",
+            metadata: { namespace: "prod", name: "checkout", labels: { app: "checkout" } },
+          },
+        ],
+      },
+      "kubectl get statefulsets -A -o json": { items: [] },
+      "kubectl get daemonsets -A -o json": { items: [] },
+      "kubectl get pods -A -o json": {
+        items: [
+          {
+            metadata: {
+              namespace: "prod",
+              name: "checkout-xyz",
+              labels: { app: "checkout" },
+              ownerReferences: [{ kind: "Deployment", name: "checkout" }],
+            },
+            spec: { nodeName: "node-a", serviceAccountName: "checkout-sa" },
+          },
+        ],
+      },
+      "kubectl get nodes -o json": {
+        items: [
+          {
+            metadata: { name: "node-a" },
+            status: { conditions: [{ type: "Ready", status: "True" }] },
+          },
+        ],
+      },
+      "kubectl get networkpolicies -A -o json": {
+        items: [
+          {
+            metadata: { namespace: "prod", name: "deny-all" },
+            spec: { podSelector: { matchLabels: { app: "checkout" } } },
+          },
+        ],
+      },
+      "kubectl get rolebindings -A -o json": {
+        items: [
+          {
+            metadata: { namespace: "prod", name: "checkout-rb" },
+            subjects: [{ kind: "ServiceAccount", name: "checkout-sa", namespace: "prod" }],
+            roleRef: { name: "view" },
+          },
+        ],
+      },
+      "kubectl get clusterrolebindings -o json": { items: [] },
+      "kubectl get events -A --field-selector type=Warning -o json": {
+        items: [
+          {
+            metadata: { uid: "evt-1" },
+            involvedObject: { kind: "Pod", namespace: "prod", name: "checkout-xyz" },
+            reason: "BackOff",
+            message: "Back-off restarting failed container",
+          },
+        ],
+      },
+    };
+
+    commandExecute.mockImplementation(async ({ command }) => {
+      if (String(command).startsWith("kubectl auth can-i")) {
+        return {
+          stdout: "yes",
+          stderr: "",
+          exitCode: 0,
+          executedAt: 0,
+          durationMs: 1,
+          policyDecision: { allowed: true, family: "kubectl", subcommand: "auth" },
+          truncated: false,
+        };
+      }
+
+      const payload = resourcePayloads[String(command)];
+      if (!payload) {
+        return {
+          stdout: "{\"items\":[]}",
+          stderr: "",
+          exitCode: 0,
+          executedAt: 0,
+          durationMs: 1,
+          policyDecision: { allowed: true, family: "kubectl", subcommand: "get" },
+          truncated: false,
+        };
+      }
+
+      return {
+        stdout: JSON.stringify(payload),
+        stderr: "",
+        exitCode: 0,
+        executedAt: 0,
+        durationMs: 1,
+        policyDecision: { allowed: true, family: "kubectl", subcommand: "get" },
+        truncated: false,
+      };
+    });
+
+    const incident = await service.createIncident({
+      title: "Layered graph",
+      services: ["checkout"],
+      entities: [
+        {
+          id: "pod/prod/checkout-xyz",
+          layer: "app",
+          kind: "Pod",
+          name: "checkout-xyz",
+          namespace: "prod",
+        },
+      ],
+    });
+
+    const result = await service.investigateIncident(incident.id, {
+      actor: "operator",
+      namespace: "prod",
+    });
+
+    expect(result.summary.entityCount).toBeGreaterThan(4);
+    expect(result.summary.edgeCount).toBeGreaterThan(3);
+    expect(result.incident.graphEdges.some((edge) => edge.relationship === "service_targets_pod")).toBe(true);
+    expect(result.incident.graphEdges.some((edge) => edge.relationship === "ingress_routes_to_service")).toBe(true);
+    expect(result.incident.correlations.length).toBeGreaterThan(0);
+  });
+
+  it("degrades layered investigation when kubectl calls fail", async () => {
+    commandExecute.mockImplementation(async ({ command }) => {
+      if (String(command).includes("pods -A -o json")) {
+        return {
+          stdout: JSON.stringify({
+            items: [
+              {
+                metadata: { namespace: "prod", name: "checkout-xyz", labels: { app: "checkout" } },
+                spec: { nodeName: "node-a", serviceAccountName: "default" },
+              },
+            ],
+          }),
+          stderr: "",
+          exitCode: 0,
+          executedAt: 0,
+          durationMs: 1,
+          policyDecision: { allowed: true, family: "kubectl", subcommand: "get" },
+          truncated: false,
+        };
+      }
+
+      if (String(command).startsWith("kubectl auth can-i")) {
+        throw new Error("kubectl missing auth plugin");
+      }
+
+      throw new Error("kubectl unavailable");
+    });
+
+    const incident = await service.createIncident({
+      title: "Graph fallback",
+      entities: [
+        {
+          id: "pod/prod/checkout-xyz",
+          layer: "app",
+          kind: "Pod",
+          name: "checkout-xyz",
+          namespace: "prod",
+        },
+      ],
+    });
+
+    const result = await service.investigateIncident(incident.id, {
+      actor: "operator",
+      namespace: "prod",
+    });
+
+    expect(result.warnings.length).toBeGreaterThan(0);
+    expect(result.summary.entityCount).toBeGreaterThan(0);
+    expect(result.incident.timeline.some((event) => event.type === "analysis")).toBe(true);
+  });
 });

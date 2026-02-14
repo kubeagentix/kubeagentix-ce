@@ -39,7 +39,7 @@ Current status:
 - ✅ Phase 1 completed
 - ✅ Phase 2 completed
 - ✅ Phase 3 completed
-- ⏳ Phase 4 not started
+- ✅ Phase 4 completed
 - ⏳ Phase 5 not started
 
 ## Phase 0: Groundwork and Spec Governance
@@ -150,8 +150,15 @@ Scope:
   - edge: Ingress/Gateway -> Service/Endpoints
   - app/runtime: workload -> pod
   - platform: node/namespace/events/metrics
-  - network/security/rbac: NetworkPolicy + RBAC/can-i checks
+- network/security/rbac: NetworkPolicy + RBAC/can-i checks
 - Add correlations and timeline enrichment from graph findings.
+
+Implementation notes:
+
+- Added `POST /api/incidents/:incidentId/investigate` to run layered graph enrichment.
+- Graph now persists typed entities, graph edges, and confidence-backed correlations on incidents.
+- Graph enrichment degrades gracefully on partial kubectl failures and returns warnings instead of hard-failing.
+- Added service and route tests for chain resolution and degraded/failure scenarios.
 
 Exit criteria:
 

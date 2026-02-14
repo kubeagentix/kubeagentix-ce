@@ -43,6 +43,7 @@ import {
   handleIncidentIntakeWebhook,
   handleIncidentJiraWebhook,
   handleIncidentSlackWebhook,
+  handleInvestigateIncident,
   handleListIncidents,
   handleSyncIncidentJira,
   handleSyncIncidentSlack,
@@ -154,6 +155,7 @@ export function createServer(): Express {
   app.post("/api/incidents/:incidentId/actions/:actionId/execute", handleExecuteIncidentAction);
   app.post("/api/incidents/:incidentId/sync/jira", handleSyncIncidentJira);
   app.post("/api/incidents/:incidentId/sync/slack", handleSyncIncidentSlack);
+  app.post("/api/incidents/:incidentId/investigate", handleInvestigateIncident);
   app.post("/api/incidents/webhooks/jira", handleIncidentJiraWebhook);
   app.post("/api/incidents/webhooks/slack", handleIncidentSlackWebhook);
   app.post("/api/incidents/intake/webhook", handleIncidentIntakeWebhook);

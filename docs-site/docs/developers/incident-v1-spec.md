@@ -37,6 +37,7 @@ QuickDx is optimized for fast diagnosis of a selected Kubernetes resource, but r
 - Incident case: identity, lifecycle, ownership, severity, services, source, refs, timestamps.
 - Entity: typed component with layer classification (edge/app/dependency/platform/infra/network/security/rbac/observability).
 - Correlation: weighted link between signals and entities with rationale.
+- Graph edge: typed relationship between entities (for example ingress->service->pod).
 - Timeline event: immutable case event stream for intake, triage, analysis, actions, sync, and resolution.
 - Action: proposal + approval state + execution result and rollback hints.
 
@@ -77,6 +78,12 @@ Kubernetes-first graph in v1:
 - Network/security/rbac checks: NetworkPolicy and `kubectl auth can-i`
 
 Observability connector follows as first non-K8s extension.
+
+Extension points:
+
+- Add new graph edge relationships in shared incident contracts.
+- Add connector-specific entity builders while preserving partial-data behavior.
+- Keep investigation idempotent and additive (enrich entities/correlations, do not erase manual context).
 
 ## Acceptance Criteria
 

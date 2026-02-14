@@ -40,6 +40,27 @@ export interface IncidentEntity {
   metadata?: Record<string, string>;
 }
 
+export type IncidentEdgeRelationship =
+  | "ingress_routes_to_service"
+  | "service_targets_pod"
+  | "service_resolves_endpoint"
+  | "workload_owns_pod"
+  | "pod_scheduled_on_node"
+  | "networkpolicy_selects_pod"
+  | "rolebinding_targets_serviceaccount"
+  | "clusterrolebinding_targets_serviceaccount";
+
+export interface IncidentGraphEdge {
+  id: string;
+  fromEntityId: string;
+  toEntityId: string;
+  relationship: IncidentEdgeRelationship;
+  layer: IncidentLayer;
+  confidence: number;
+  rationale: string;
+  metadata?: Record<string, string>;
+}
+
 export type IncidentTimelineEventType =
   | "intake"
   | "triage"
@@ -136,6 +157,7 @@ export interface IncidentCase {
   owner?: string;
   services: string[];
   entities: IncidentEntity[];
+  graphEdges: IncidentGraphEdge[];
   source: IncidentSource;
   externalRefs: IncidentExternalRef[];
   correlations: IncidentCorrelation[];
@@ -236,6 +258,24 @@ export interface IncidentWebhookRequest {
   eventId?: string;
   updatedAt?: number;
   metadata?: Record<string, string>;
+}
+
+export interface InvestigateIncidentRequest {
+  actor?: string;
+  clusterContext?: string;
+  namespace?: string;
+  maxEntities?: number;
+}
+
+export interface InvestigateIncidentResponse {
+  incident: IncidentCase;
+  summary: {
+    entityCount: number;
+    edgeCount: number;
+    correlationCount: number;
+    warningCount: number;
+  };
+  warnings: string[];
 }
 
 export interface ListIncidentsQuery {

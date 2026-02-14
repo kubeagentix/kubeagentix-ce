@@ -34,6 +34,7 @@ export default function Incident() {
     createAction,
     approveAction,
     executeAction,
+    investigateIncident,
   } = useIncidents();
 
   const [incidents, setIncidents] = useState<IncidentCase[]>([]);
@@ -50,6 +51,7 @@ export default function Incident() {
   const [actionType, setActionType] = useState<IncidentActionType>("manual");
   const [actionCommand, setActionCommand] = useState("");
   const [actionSkillId, setActionSkillId] = useState("");
+  const [investigationWarnings, setInvestigationWarnings] = useState<string[]>([]);
 
   const refreshList = useCallback(async () => {
     const data = await listIncidents({
@@ -174,6 +176,17 @@ export default function Incident() {
       dryRun: true,
     });
     setSelectedIncident(updated);
+    await refreshList();
+  };
+
+  const handleRunInvestigation = async () => {
+    if (!selectedIncident) return;
+    const result = await investigateIncident(selectedIncident.id, {
+      actor: "operator",
+      maxEntities: 200,
+    });
+    setSelectedIncident(result.incident);
+    setInvestigationWarnings(result.warnings);
     await refreshList();
   };
 
@@ -329,6 +342,82 @@ export default function Incident() {
                         {status}
                       </Button>
                     ))}
+                    <Button
+                      variant="outline"
+                      className="border-sky-700 text-sky-300 hover:bg-sky-900/30"
+                      onClick={() => void handleRunInvestigation()}
+                      disabled={loading}
+                    >
+                      Run Layered Investigation
+                    </Button>
+                  </div>
+                  {investigationWarnings.length > 0 && (
+                    <div className="mt-3 rounded border border-amber-800 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+                      Investigation warnings: {investigationWarnings.length}
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+                    <h3 className="text-lg font-semibold text-white mb-3">Graph Entities</h3>
+                    <div className="text-xs text-zinc-500 mb-3">
+                      {(selectedIncident.entities || []).length} entities
+                    </div>
+                    <div className="space-y-2 max-h-[220px] overflow-y-auto">
+                      {(selectedIncident.entities || []).slice(0, 20).map((entity) => (
+                        <div key={entity.id} className="rounded border border-zinc-700 bg-zinc-800/40 px-3 py-2">
+                          <div className="text-sm text-zinc-200">
+                            {entity.kind}/{entity.name}
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            {entity.layer}
+                            {entity.namespace ? ` • ${entity.namespace}` : ""}
+                          </div>
+                        </div>
+                      ))}
+                      {(selectedIncident.entities || []).length === 0 && (
+                        <div className="text-sm text-zinc-500">No graph entities yet.</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+                    <h3 className="text-lg font-semibold text-white mb-3">Graph Edges</h3>
+                    <div className="text-xs text-zinc-500 mb-3">
+                      {(selectedIncident.graphEdges || []).length} edges
+                    </div>
+                    <div className="space-y-2 max-h-[220px] overflow-y-auto">
+                      {(selectedIncident.graphEdges || []).slice(0, 20).map((edge) => (
+                        <div key={edge.id} className="rounded border border-zinc-700 bg-zinc-800/40 px-3 py-2">
+                          <div className="text-sm text-zinc-200">{edge.relationship}</div>
+                          <div className="text-xs text-zinc-500">confidence {edge.confidence}%</div>
+                        </div>
+                      ))}
+                      {(selectedIncident.graphEdges || []).length === 0 && (
+                        <div className="text-sm text-zinc-500">No graph edges yet.</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+                    <h3 className="text-lg font-semibold text-white mb-3">Correlations</h3>
+                    <div className="text-xs text-zinc-500 mb-3">
+                      {(selectedIncident.correlations || []).length} signals
+                    </div>
+                    <div className="space-y-2 max-h-[220px] overflow-y-auto">
+                      {(selectedIncident.correlations || []).slice(0, 20).map((correlation) => (
+                        <div key={correlation.signalId} className="rounded border border-zinc-700 bg-zinc-800/40 px-3 py-2">
+                          <div className="text-sm text-zinc-200">{correlation.signalId}</div>
+                          <div className="text-xs text-zinc-500">
+                            confidence {correlation.confidence}% • {correlation.rationale}
+                          </div>
+                        </div>
+                      ))}
+                      {(selectedIncident.correlations || []).length === 0 && (
+                        <div className="text-sm text-zinc-500">No correlations yet.</div>
+                      )}
+                    </div>
                   </div>
                 </div>
 

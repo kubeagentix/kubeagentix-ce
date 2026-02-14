@@ -144,6 +144,7 @@ See `.env.example` for full set. Typical variables:
 - `INCIDENT_JIRA_BASE_URL` (optional, used for mock URL generation)
 - `INCIDENT_SLACK_BASE_URL` (optional, used for mock URL generation)
 - `INCIDENT_SYNC_TIMEOUT_MS` (default `8000`)
+- `INCIDENT_GRAPH_MODE` (`live|mock`, default `live`)
 
 If no LLM keys are set, heuristic fallback paths remain available for core diagnosis/suggestion flows.
 
@@ -175,6 +176,8 @@ If no LLM keys are set, heuristic fallback paths remain available for core diagn
   If `POST /api/incidents/:incidentId/sync/jira` or `/sync/slack` returns `INCIDENT_SYNC_FAILED`,
   check sync mode and webhook URL env vars. Failed sync attempts are persisted with `syncStatus=failed`,
   and can be retried by calling the same sync endpoint again after fixing configuration.
+- Incident graph investigation is slow in local tests:
+  Set `INCIDENT_GRAPH_MODE=mock` to bypass live kubectl graph enrichment.
 - Port already in use:
   Run with a different port:
   `PORT=4100 npx kubeagentix-ce@latest`

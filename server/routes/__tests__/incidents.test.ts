@@ -16,6 +16,7 @@ describe("Incident routes", () => {
     process.env.INCIDENT_STORE_DIR = tempDir;
     process.env.INCIDENT_JIRA_SYNC_MODE = "mock";
     process.env.INCIDENT_SLACK_SYNC_MODE = "mock";
+    process.env.INCIDENT_GRAPH_MODE = "mock";
     resetIncidentServiceForTests();
 
     const app = createServer();
@@ -40,6 +41,7 @@ describe("Incident routes", () => {
     delete process.env.INCIDENT_JIRA_WEBHOOK_URL;
     delete process.env.INCIDENT_SLACK_SYNC_MODE;
     delete process.env.INCIDENT_SLACK_WEBHOOK_URL;
+    delete process.env.INCIDENT_GRAPH_MODE;
     await rm(tempDir, { recursive: true, force: true });
   });
 
@@ -224,5 +226,42 @@ describe("Incident routes", () => {
     expect(stale.status).toBe(202);
     const stalePayload = (await stale.json()) as { incident: { status: string } };
     expect(stalePayload.incident.status).toBe("triage");
+  });
+
+  it("returns layered investigation summary without hard failure", async () => {
+    const create = await fetch(`${baseUrl}/api/incidents`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Graph route test",
+        entities: [
+          {
+            id: "pod/default/demo",
+            layer: "app",
+            kind: "Pod",
+            name: "demo",
+            namespace: "default",
+          },
+        ],
+      }),
+    });
+    const incidentId = ((await create.json()) as { incident: { id: string } }).incident.id;
+
+    const investigate = await fetch(
+      `${baseUrl}/api/incidents/${encodeURIComponent(incidentId)}/investigate`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ actor: "operator", namespace: "default" }),
+      },
+    );
+
+    expect(investigate.status).toBe(200);
+    const payload = (await investigate.json()) as {
+      summary: { entityCount: number; edgeCount: number; warningCount: number };
+      warnings: string[];
+    };
+    expect(payload.summary.entityCount).toBeGreaterThan(0);
+    expect(payload.summary.warningCount).toBe(payload.warnings.length);
   });
 });

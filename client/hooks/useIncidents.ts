@@ -6,6 +6,8 @@ import type {
   CreateIncidentRequest,
   ExecuteIncidentActionRequest,
   IncidentCase,
+  InvestigateIncidentRequest,
+  InvestigateIncidentResponse,
   ListIncidentsResponse,
   UpdateIncidentRequest,
 } from "@shared/incident";
@@ -156,6 +158,23 @@ export function useIncidents() {
     [withState],
   );
 
+  const investigateIncident = useCallback(
+    async (incidentId: string, request: InvestigateIncidentRequest = {}) =>
+      withState(async () => {
+        const response = await fetch(
+          `/api/incidents/${encodeURIComponent(incidentId)}/investigate`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(request),
+          },
+        );
+        const payload = (await parseJsonResponse(response)) as InvestigateIncidentResponse;
+        return payload;
+      }),
+    [withState],
+  );
+
   return {
     loading,
     error,
@@ -167,5 +186,6 @@ export function useIncidents() {
     createAction,
     approveAction,
     executeAction,
+    investigateIncident,
   };
 }

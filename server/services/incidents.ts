@@ -10,13 +10,18 @@ import type {
   ForceIncidentSyncRequest,
   IncidentAction,
   IncidentCase,
+  IncidentCorrelation,
+  IncidentEntity,
   IncidentExternalRef,
+  IncidentGraphEdge,
   IncidentExternalSystem,
   IncidentSource,
   IncidentStatus,
   IncidentSummary,
   IncidentTimelineEvent,
   IncidentWebhookRequest,
+  InvestigateIncidentRequest,
+  InvestigateIncidentResponse,
   ListIncidentsQuery,
   ListIncidentsResponse,
   UpdateIncidentRequest,
@@ -28,6 +33,9 @@ import { getCommandBroker } from "../commands/broker";
 const DEFAULT_DATA_DIR = path.join(process.cwd(), "data", "incidents");
 const INDEX_FILE = "index.json";
 const DEFAULT_SYNC_TIMEOUT_MS = 8000;
+const MAX_GRAPH_OUTPUT_BYTES = 5 * 1024 * 1024;
+const DEFAULT_GRAPH_TIMEOUT_MS = 20_000;
+const DEFAULT_MAX_GRAPH_ENTITIES = 180;
 
 const ALLOWED_STATUS_TRANSITIONS: Record<IncidentStatus, IncidentStatus[]> = {
   new: ["triage", "investigating", "resolved"],
@@ -165,6 +173,26 @@ function parseTimeoutMs(): number {
   return Math.min(parsed, 60_000);
 }
 
+function toRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object") return {};
+  const record: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (item === undefined || item === null) continue;
+    record[key] = String(item);
+  }
+  return record;
+}
+
+function labelsMatch(selector: Record<string, string>, labels: Record<string, string>): boolean {
+  const selectorEntries = Object.entries(selector || {});
+  if (selectorEntries.length === 0) return false;
+  return selectorEntries.every(([key, value]) => labels[key] === value);
+}
+
+function buildEntityId(kind: string, namespace: string | undefined, name: string): string {
+  return `${kind.toLowerCase()}/${namespace || "_cluster"}/${name}`;
+}
+
 function buildDefaultExternalSyncAdapters(
   now: () => number,
 ): Record<IncidentExternalSystem, IncidentExternalSyncAdapter> {
@@ -284,6 +312,20 @@ export class IncidentService {
     };
   }
 
+  private normalizeIncident(incident: IncidentCase): IncidentCase {
+    return {
+      ...incident,
+      services: incident.services || [],
+      entities: incident.entities || [],
+      graphEdges: incident.graphEdges || [],
+      externalRefs: incident.externalRefs || [],
+      correlations: incident.correlations || [],
+      diagnoses: incident.diagnoses || [],
+      actions: incident.actions || [],
+      timeline: incident.timeline || [],
+    };
+  }
+
   private async ensureInitialized(): Promise<void> {
     if (this.initialized) return;
 
@@ -298,7 +340,7 @@ export class IncidentService {
         const incidentPath = path.join(this.dataDir, `${summary.id}.json`);
         try {
           const rawIncident = await fs.readFile(incidentPath, "utf8");
-          const incident = JSON.parse(rawIncident) as IncidentCase;
+          const incident = this.normalizeIncident(JSON.parse(rawIncident) as IncidentCase);
           this.incidents.set(incident.id, incident);
         } catch {
           // Skip unreadable incident payloads; index will self-heal on next write.
@@ -391,9 +433,13 @@ export class IncidentService {
 
   async getIncidentById(incidentId: string): Promise<IncidentCase> {
     await this.ensureInitialized();
-    const incident = this.incidents.get(incidentId);
+    const loaded = this.incidents.get(incidentId);
+    const incident = loaded ? this.normalizeIncident(loaded) : undefined;
     if (!incident) {
       throw new IncidentServiceError("INCIDENT_NOT_FOUND", `Incident not found: ${incidentId}`);
+    }
+    if (loaded !== incident) {
+      this.incidents.set(incident.id, incident);
     }
     return incident;
   }
@@ -416,6 +462,7 @@ export class IncidentService {
       owner: payload.owner?.trim() || undefined,
       services: normalizeServices(payload.services),
       entities: payload.entities || [],
+      graphEdges: [],
       source: payload.source || "manual",
       externalRefs: payload.externalRefs || [],
       correlations: payload.correlations || [],
@@ -877,6 +924,668 @@ export class IncidentService {
         `${system.toUpperCase()} sync failed: ${message}`,
       );
     }
+  }
+
+  private async runKubectlItems(
+    command: string,
+    clusterContext: string | undefined,
+    warnings: string[],
+  ): Promise<any[]> {
+    try {
+      const response = await this.commandExecute({
+        command,
+        clusterContext,
+        timeoutMs: DEFAULT_GRAPH_TIMEOUT_MS,
+        maxOutputBytes: MAX_GRAPH_OUTPUT_BYTES,
+      });
+
+      if (response.exitCode !== 0) {
+        warnings.push(`${command}: ${response.stderr || `exit ${response.exitCode}`}`);
+        return [];
+      }
+
+      const parsed = JSON.parse(response.stdout || "{\"items\":[]}") as { items?: any[] };
+      return Array.isArray(parsed.items) ? parsed.items : [];
+    } catch (error) {
+      warnings.push(`${command}: ${error instanceof Error ? error.message : "failed"}`);
+      return [];
+    }
+  }
+
+  private async runKubectlText(
+    command: string,
+    clusterContext: string | undefined,
+    warnings: string[],
+  ): Promise<string> {
+    try {
+      const response = await this.commandExecute({
+        command,
+        clusterContext,
+        timeoutMs: DEFAULT_GRAPH_TIMEOUT_MS,
+        maxOutputBytes: 1024 * 1024,
+      });
+
+      if (response.exitCode !== 0) {
+        warnings.push(`${command}: ${response.stderr || `exit ${response.exitCode}`}`);
+        return "";
+      }
+
+      return response.stdout.trim();
+    } catch (error) {
+      warnings.push(`${command}: ${error instanceof Error ? error.message : "failed"}`);
+      return "";
+    }
+  }
+
+  async investigateIncident(
+    incidentId: string,
+    payload: InvestigateIncidentRequest = {},
+  ): Promise<InvestigateIncidentResponse> {
+    const incident = await this.getIncidentById(incidentId);
+    const actor = payload.actor || "system";
+    const clusterContext = payload.clusterContext;
+    const graphMode = (process.env.INCIDENT_GRAPH_MODE || "live").trim().toLowerCase();
+    const maxEntities = Math.max(
+      20,
+      Math.min(payload.maxEntities || DEFAULT_MAX_GRAPH_ENTITIES, 500),
+    );
+    const warnings: string[] = [];
+
+    if (graphMode === "mock") {
+      this.pushTimeline(incident, {
+        type: "analysis",
+        actor,
+        source: "system",
+        message: `Layered investigation graph updated in mock mode (${incident.entities.length} entities)`,
+        payload: {
+          entityCount: incident.entities.length,
+          edgeCount: incident.graphEdges.length,
+          correlationCount: incident.correlations.length,
+          warningCount: 1,
+        },
+        correlationKeys: [`incident:${incident.id}`, "graph:layered-v1:mock"],
+      });
+      warnings.push("Incident graph mode is mock; skipped live kubectl enrichment");
+      await this.persist(incident);
+      return {
+        incident,
+        summary: {
+          entityCount: incident.entities.length,
+          edgeCount: incident.graphEdges.length,
+          correlationCount: incident.correlations.length,
+          warningCount: warnings.length,
+        },
+        warnings,
+      };
+    }
+
+    const entityMap = new Map<string, IncidentEntity>();
+    for (const entity of incident.entities || []) {
+      entityMap.set(entity.id, entity);
+    }
+
+    const edgeMap = new Map<string, IncidentGraphEdge>();
+    for (const edge of incident.graphEdges || []) {
+      edgeMap.set(edge.id, edge);
+    }
+
+    const correlationMap = new Map<string, IncidentCorrelation>();
+    for (const correlation of incident.correlations || []) {
+      correlationMap.set(correlation.signalId, correlation);
+    }
+
+    const addEntity = (entity: IncidentEntity): IncidentEntity | null => {
+      if (!entity.id || !entity.kind || !entity.name) return null;
+      if (!entityMap.has(entity.id) && entityMap.size >= maxEntities) return null;
+      const existing = entityMap.get(entity.id);
+      entityMap.set(entity.id, {
+        ...existing,
+        ...entity,
+        metadata: toMetadata(existing?.metadata, entity.metadata),
+      });
+      return entityMap.get(entity.id)!;
+    };
+
+    const addEdge = (edge: IncidentGraphEdge): void => {
+      if (!entityMap.has(edge.fromEntityId) || !entityMap.has(edge.toEntityId)) return;
+      const id =
+        edge.id ||
+        `${edge.relationship}:${edge.fromEntityId}->${edge.toEntityId}`;
+      edgeMap.set(id, {
+        ...edge,
+        id,
+        confidence: Math.max(1, Math.min(100, Math.round(edge.confidence))),
+      });
+    };
+
+    const addCorrelation = (correlation: IncidentCorrelation): void => {
+      const entityIds = Array.from(
+        new Set(correlation.entityIds.filter((entityId) => entityMap.has(entityId))),
+      );
+      if (entityIds.length === 0) return;
+      correlationMap.set(correlation.signalId, {
+        ...correlation,
+        entityIds,
+        confidence: Math.max(1, Math.min(100, Math.round(correlation.confidence))),
+      });
+    };
+
+    const targetNamespaces = new Set<string>();
+    const serviceHints = new Set(
+      incident.services.map((service) => service.trim().toLowerCase()).filter(Boolean),
+    );
+
+    for (const diagnosis of incident.diagnoses || []) {
+      const id = buildEntityId(
+        diagnosis.resource.kind,
+        diagnosis.resource.namespace,
+        diagnosis.resource.name,
+      );
+      addEntity({
+        id,
+        layer: "app",
+        kind: diagnosis.resource.kind,
+        name: diagnosis.resource.name,
+        namespace: diagnosis.resource.namespace,
+        metadata: { source: "diagnosis", diagnosisId: diagnosis.diagnosisId },
+      });
+      if (diagnosis.resource.namespace) targetNamespaces.add(diagnosis.resource.namespace);
+    }
+
+    for (const entity of incident.entities || []) {
+      if (entity.namespace) targetNamespaces.add(entity.namespace);
+    }
+
+    if (payload.namespace?.trim()) {
+      targetNamespaces.add(payload.namespace.trim());
+    }
+    if (targetNamespaces.size === 0) {
+      targetNamespaces.add("default");
+    }
+
+    const resourceInScope = (namespace?: string): boolean =>
+      !namespace || targetNamespaces.has(namespace);
+
+    const ingresses = await this.runKubectlItems("kubectl get ingress -A -o json", clusterContext, warnings);
+    const services = await this.runKubectlItems("kubectl get services -A -o json", clusterContext, warnings);
+    const endpoints = await this.runKubectlItems("kubectl get endpoints -A -o json", clusterContext, warnings);
+    const deployments = await this.runKubectlItems("kubectl get deployments -A -o json", clusterContext, warnings);
+    const statefulsets = await this.runKubectlItems("kubectl get statefulsets -A -o json", clusterContext, warnings);
+    const daemonsets = await this.runKubectlItems("kubectl get daemonsets -A -o json", clusterContext, warnings);
+    const pods = await this.runKubectlItems("kubectl get pods -A -o json", clusterContext, warnings);
+    const nodes = await this.runKubectlItems("kubectl get nodes -o json", clusterContext, warnings);
+    const networkPolicies = await this.runKubectlItems("kubectl get networkpolicies -A -o json", clusterContext, warnings);
+    const roleBindings = await this.runKubectlItems("kubectl get rolebindings -A -o json", clusterContext, warnings);
+    const clusterRoleBindings = await this.runKubectlItems("kubectl get clusterrolebindings -o json", clusterContext, warnings);
+    const warningEvents = await this.runKubectlItems(
+      "kubectl get events -A --field-selector type=Warning -o json",
+      clusterContext,
+      warnings,
+    );
+
+    const podByNamespaceName = new Map<string, any>();
+    for (const pod of pods) {
+      const namespace = pod?.metadata?.namespace;
+      const name = pod?.metadata?.name;
+      if (!namespace || !name || !resourceInScope(namespace)) continue;
+      podByNamespaceName.set(`${namespace}/${name}`, pod);
+    }
+
+    const workloadCandidates = [...deployments, ...statefulsets, ...daemonsets].filter((workload) =>
+      resourceInScope(workload?.metadata?.namespace),
+    );
+
+    const relevantPods = new Set<string>();
+    const relevantServices = new Set<string>();
+    const relevantWorkloads = new Set<string>();
+
+    for (const entity of entityMap.values()) {
+      if (entity.layer !== "app") continue;
+      const entityKey = `${entity.namespace || ""}/${entity.name}`;
+      if (entity.kind.toLowerCase() === "pod") relevantPods.add(entityKey);
+      else relevantWorkloads.add(`${entity.kind.toLowerCase()}:${entityKey}`);
+    }
+
+    for (const workload of workloadCandidates) {
+      const namespace = workload?.metadata?.namespace;
+      const name = workload?.metadata?.name;
+      if (!namespace || !name) continue;
+
+      const labels = toRecord(workload?.metadata?.labels);
+      const workloadKey = `${workload?.kind?.toLowerCase()}:${namespace}/${name}`;
+      const hinted =
+        serviceHints.size === 0 ||
+        serviceHints.has(name.toLowerCase()) ||
+        Object.values(labels).some((value) => serviceHints.has(value.toLowerCase()));
+      const seeded = relevantWorkloads.has(workloadKey);
+      if (!hinted && !seeded) continue;
+
+      const workloadEntity = addEntity({
+        id: buildEntityId(workload.kind || "Workload", namespace, name),
+        layer: "app",
+        kind: workload.kind || "Workload",
+        name,
+        namespace,
+        metadata: { source: "k8s-graph" },
+      });
+      if (!workloadEntity) continue;
+
+      relevantWorkloads.add(workloadKey);
+
+      for (const pod of podByNamespaceName.values()) {
+        if (pod?.metadata?.namespace !== namespace) continue;
+        const owners = pod?.metadata?.ownerReferences || [];
+        const owned = owners.some(
+          (owner: any) =>
+            owner?.name === name && (owner?.kind || "").toLowerCase() === (workload?.kind || "").toLowerCase(),
+        );
+        if (!owned) continue;
+
+        const podEntity = addEntity({
+          id: buildEntityId("Pod", namespace, pod.metadata.name),
+          layer: "app",
+          kind: "Pod",
+          name: pod.metadata.name,
+          namespace,
+          metadata: {
+            nodeName: pod?.spec?.nodeName || "",
+            serviceAccountName: pod?.spec?.serviceAccountName || "default",
+          },
+        });
+        if (!podEntity) continue;
+        relevantPods.add(`${namespace}/${pod.metadata.name}`);
+
+        addEdge({
+          id: `workload_owns_pod:${workloadEntity.id}->${podEntity.id}`,
+          fromEntityId: workloadEntity.id,
+          toEntityId: podEntity.id,
+          relationship: "workload_owns_pod",
+          layer: "app",
+          confidence: 94,
+          rationale: `${workload.kind}/${name} owns pod ${pod.metadata.name}`,
+        });
+      }
+    }
+
+    for (const service of services) {
+      const namespace = service?.metadata?.namespace;
+      const name = service?.metadata?.name;
+      if (!namespace || !name || !resourceInScope(namespace)) continue;
+
+      const selector = toRecord(service?.spec?.selector);
+      const hinted =
+        serviceHints.size === 0 ||
+        serviceHints.has(name.toLowerCase()) ||
+        Object.values(selector).some((value) => serviceHints.has(value.toLowerCase()));
+
+      const matchedPods = Array.from(podByNamespaceName.values()).filter(
+        (pod) =>
+          pod?.metadata?.namespace === namespace &&
+          labelsMatch(selector, toRecord(pod?.metadata?.labels)),
+      );
+      const hasRelevantPod = matchedPods.some((pod) =>
+        relevantPods.has(`${namespace}/${pod?.metadata?.name}`),
+      );
+
+      if (!hinted && !hasRelevantPod) continue;
+
+      const serviceEntity = addEntity({
+        id: buildEntityId("Service", namespace, name),
+        layer: "edge",
+        kind: "Service",
+        name,
+        namespace,
+        service: name,
+        metadata: { source: "k8s-graph" },
+      });
+      if (!serviceEntity) continue;
+      relevantServices.add(`${namespace}/${name}`);
+
+      for (const pod of matchedPods.slice(0, 30)) {
+        const podEntity = addEntity({
+          id: buildEntityId("Pod", namespace, pod.metadata.name),
+          layer: "app",
+          kind: "Pod",
+          name: pod.metadata.name,
+          namespace,
+          metadata: {
+            nodeName: pod?.spec?.nodeName || "",
+            serviceAccountName: pod?.spec?.serviceAccountName || "default",
+          },
+        });
+        if (!podEntity) continue;
+        relevantPods.add(`${namespace}/${pod.metadata.name}`);
+        addEdge({
+          id: `service_targets_pod:${serviceEntity.id}->${podEntity.id}`,
+          fromEntityId: serviceEntity.id,
+          toEntityId: podEntity.id,
+          relationship: "service_targets_pod",
+          layer: "edge",
+          confidence: 89,
+          rationale: `Service selector matches pod labels`,
+        });
+      }
+
+      const endpoint = endpoints.find(
+        (item) =>
+          item?.metadata?.namespace === namespace && item?.metadata?.name === name,
+      );
+      if (endpoint) {
+        const endpointEntity = addEntity({
+          id: buildEntityId("Endpoints", namespace, name),
+          layer: "edge",
+          kind: "Endpoints",
+          name,
+          namespace,
+          metadata: { source: "k8s-graph" },
+        });
+        if (endpointEntity) {
+          addEdge({
+            id: `service_resolves_endpoint:${serviceEntity.id}->${endpointEntity.id}`,
+            fromEntityId: serviceEntity.id,
+            toEntityId: endpointEntity.id,
+            relationship: "service_resolves_endpoint",
+            layer: "edge",
+            confidence: 92,
+            rationale: "Service and Endpoints share namespace/name",
+          });
+        }
+      }
+    }
+
+    for (const ingress of ingresses) {
+      const namespace = ingress?.metadata?.namespace;
+      const name = ingress?.metadata?.name;
+      if (!namespace || !name || !resourceInScope(namespace)) continue;
+
+      const backends: string[] = [];
+      const rules = ingress?.spec?.rules || [];
+      for (const rule of rules) {
+        const paths = rule?.http?.paths || [];
+        for (const pathEntry of paths) {
+          const backendService = pathEntry?.backend?.service?.name;
+          if (backendService) backends.push(backendService);
+        }
+      }
+      const defaultBackend = ingress?.spec?.defaultBackend?.service?.name;
+      if (defaultBackend) backends.push(defaultBackend);
+
+      const relevantTargets = backends.filter((backend) =>
+        relevantServices.has(`${namespace}/${backend}`),
+      );
+      if (relevantTargets.length === 0) continue;
+
+      const ingressEntity = addEntity({
+        id: buildEntityId("Ingress", namespace, name),
+        layer: "edge",
+        kind: "Ingress",
+        name,
+        namespace,
+        metadata: { source: "k8s-graph" },
+      });
+      if (!ingressEntity) continue;
+
+      for (const serviceName of relevantTargets) {
+        const serviceEntityId = buildEntityId("Service", namespace, serviceName);
+        if (!entityMap.has(serviceEntityId)) continue;
+        addEdge({
+          id: `ingress_routes_to_service:${ingressEntity.id}->${serviceEntityId}`,
+          fromEntityId: ingressEntity.id,
+          toEntityId: serviceEntityId,
+          relationship: "ingress_routes_to_service",
+          layer: "edge",
+          confidence: 87,
+          rationale: "Ingress backend routes traffic to Service",
+        });
+      }
+    }
+
+    const nodeByName = new Map<string, any>();
+    for (const node of nodes) {
+      const name = node?.metadata?.name;
+      if (name) nodeByName.set(name, node);
+    }
+
+    const relevantServiceAccounts = new Set<string>();
+    for (const podKey of relevantPods) {
+      const pod = podByNamespaceName.get(podKey);
+      if (!pod) continue;
+      const namespace = pod?.metadata?.namespace;
+      const podName = pod?.metadata?.name;
+      const nodeName = pod?.spec?.nodeName;
+      const serviceAccountName = pod?.spec?.serviceAccountName || "default";
+      relevantServiceAccounts.add(`${namespace}/${serviceAccountName}`);
+
+      if (nodeName) {
+        const nodeEntity = addEntity({
+          id: buildEntityId("Node", undefined, nodeName),
+          layer: "platform",
+          kind: "Node",
+          name: nodeName,
+          metadata: { source: "k8s-graph" },
+        });
+        const podEntityId = buildEntityId("Pod", namespace, podName);
+        if (nodeEntity && entityMap.has(podEntityId)) {
+          addEdge({
+            id: `pod_scheduled_on_node:${podEntityId}->${nodeEntity.id}`,
+            fromEntityId: podEntityId,
+            toEntityId: nodeEntity.id,
+            relationship: "pod_scheduled_on_node",
+            layer: "platform",
+            confidence: 96,
+            rationale: "Pod spec.nodeName points to node",
+          });
+        }
+
+        const node = nodeByName.get(nodeName);
+        const unhealthy = (node?.status?.conditions || []).some(
+          (condition: any) =>
+            condition?.type === "Ready" && condition?.status !== "True",
+        );
+        if (unhealthy && nodeEntity) {
+          addCorrelation({
+            signalId: `node-unready:${nodeName}`,
+            entityIds: [nodeEntity.id, buildEntityId("Pod", namespace, podName)],
+            confidence: 84,
+            rationale: `Node ${nodeName} is not Ready for scheduled workload pod ${podName}`,
+          });
+        }
+      }
+    }
+
+    for (const policy of networkPolicies) {
+      const namespace = policy?.metadata?.namespace;
+      const name = policy?.metadata?.name;
+      if (!namespace || !name || !resourceInScope(namespace)) continue;
+
+      const selector = toRecord(policy?.spec?.podSelector?.matchLabels);
+      const matchedPods = Array.from(relevantPods)
+        .map((podKey) => podByNamespaceName.get(podKey))
+        .filter((pod) => pod?.metadata?.namespace === namespace)
+        .filter((pod) => labelsMatch(selector, toRecord(pod?.metadata?.labels)));
+      if (matchedPods.length === 0) continue;
+
+      const policyEntity = addEntity({
+        id: buildEntityId("NetworkPolicy", namespace, name),
+        layer: "network",
+        kind: "NetworkPolicy",
+        name,
+        namespace,
+        metadata: { source: "k8s-graph" },
+      });
+      if (!policyEntity) continue;
+
+      for (const pod of matchedPods) {
+        const podEntityId = buildEntityId("Pod", namespace, pod.metadata.name);
+        addEdge({
+          id: `networkpolicy_selects_pod:${policyEntity.id}->${podEntityId}`,
+          fromEntityId: policyEntity.id,
+          toEntityId: podEntityId,
+          relationship: "networkpolicy_selects_pod",
+          layer: "network",
+          confidence: 82,
+          rationale: "NetworkPolicy podSelector matches pod labels",
+        });
+      }
+    }
+
+    for (const serviceAccountKey of relevantServiceAccounts) {
+      const [namespace, serviceAccountName] = serviceAccountKey.split("/");
+      if (!namespace || !serviceAccountName) continue;
+      const serviceAccountEntity = addEntity({
+        id: buildEntityId("ServiceAccount", namespace, serviceAccountName),
+        layer: "rbac",
+        kind: "ServiceAccount",
+        name: serviceAccountName,
+        namespace,
+        metadata: { source: "k8s-graph" },
+      });
+      if (!serviceAccountEntity) continue;
+
+      for (const roleBinding of roleBindings) {
+        if (roleBinding?.metadata?.namespace !== namespace) continue;
+        const subjects = roleBinding?.subjects || [];
+        const matches = subjects.some(
+          (subject: any) =>
+            subject?.kind === "ServiceAccount" &&
+            subject?.name === serviceAccountName &&
+            (subject?.namespace || namespace) === namespace,
+        );
+        if (!matches) continue;
+
+        const roleBindingEntity = addEntity({
+          id: buildEntityId(
+            "RoleBinding",
+            namespace,
+            roleBinding?.metadata?.name || "unknown",
+          ),
+          layer: "rbac",
+          kind: "RoleBinding",
+          name: roleBinding?.metadata?.name || "unknown",
+          namespace,
+          metadata: {
+            roleRef: roleBinding?.roleRef?.name || "",
+          },
+        });
+        if (!roleBindingEntity) continue;
+
+        addEdge({
+          id: `rolebinding_targets_serviceaccount:${roleBindingEntity.id}->${serviceAccountEntity.id}`,
+          fromEntityId: roleBindingEntity.id,
+          toEntityId: serviceAccountEntity.id,
+          relationship: "rolebinding_targets_serviceaccount",
+          layer: "rbac",
+          confidence: 95,
+          rationale: "RoleBinding subjects include ServiceAccount",
+        });
+      }
+
+      for (const clusterRoleBinding of clusterRoleBindings) {
+        const subjects = clusterRoleBinding?.subjects || [];
+        const matches = subjects.some(
+          (subject: any) =>
+            subject?.kind === "ServiceAccount" &&
+            subject?.name === serviceAccountName &&
+            subject?.namespace === namespace,
+        );
+        if (!matches) continue;
+
+        const clusterRoleBindingEntity = addEntity({
+          id: buildEntityId(
+            "ClusterRoleBinding",
+            undefined,
+            clusterRoleBinding?.metadata?.name || "unknown",
+          ),
+          layer: "rbac",
+          kind: "ClusterRoleBinding",
+          name: clusterRoleBinding?.metadata?.name || "unknown",
+          metadata: {
+            roleRef: clusterRoleBinding?.roleRef?.name || "",
+          },
+        });
+        if (!clusterRoleBindingEntity) continue;
+
+        addEdge({
+          id: `clusterrolebinding_targets_serviceaccount:${clusterRoleBindingEntity.id}->${serviceAccountEntity.id}`,
+          fromEntityId: clusterRoleBindingEntity.id,
+          toEntityId: serviceAccountEntity.id,
+          relationship: "clusterrolebinding_targets_serviceaccount",
+          layer: "rbac",
+          confidence: 95,
+          rationale: "ClusterRoleBinding subjects include ServiceAccount",
+        });
+      }
+
+      const canI = await this.runKubectlText(
+        `kubectl auth can-i get pods --as system:serviceaccount:${namespace}:${serviceAccountName} -n ${namespace}`,
+        clusterContext,
+        warnings,
+      );
+      const denied = canI.toLowerCase() === "no";
+      if (denied) {
+        addCorrelation({
+          signalId: `rbac-can-i-denied:${namespace}:${serviceAccountName}`,
+          entityIds: [serviceAccountEntity.id],
+          confidence: 78,
+          rationale: `ServiceAccount ${namespace}/${serviceAccountName} cannot list pods in namespace`,
+        });
+      }
+    }
+
+    for (const event of warningEvents.slice(0, 200)) {
+      const involved = event?.involvedObject;
+      const kind = involved?.kind;
+      const name = involved?.name;
+      if (!kind || !name) continue;
+      const namespace = involved?.namespace;
+      const entityId = buildEntityId(kind, namespace, name);
+      if (!entityMap.has(entityId)) continue;
+      addCorrelation({
+        signalId: `warning-event:${event?.metadata?.uid || `${kind}:${name}:${event?.reason || "warning"}`}`,
+        entityIds: [entityId],
+        confidence: 72,
+        rationale: `${event?.reason || "Warning"}: ${event?.message || "Cluster warning event detected"}`,
+      });
+    }
+
+    incident.entities = Array.from(entityMap.values()).sort((a, b) =>
+      `${a.layer}:${a.kind}:${a.name}`.localeCompare(`${b.layer}:${b.kind}:${b.name}`),
+    );
+    incident.graphEdges = Array.from(edgeMap.values()).sort((a, b) =>
+      `${a.relationship}:${a.fromEntityId}:${a.toEntityId}`.localeCompare(
+        `${b.relationship}:${b.fromEntityId}:${b.toEntityId}`,
+      ),
+    );
+    incident.correlations = Array.from(correlationMap.values()).sort(
+      (a, b) => b.confidence - a.confidence,
+    );
+
+    this.pushTimeline(incident, {
+      type: "analysis",
+      actor,
+      source: "system",
+      message: `Layered investigation graph updated (${incident.entities.length} entities, ${incident.graphEdges.length} edges)`,
+      payload: {
+        entityCount: incident.entities.length,
+        edgeCount: incident.graphEdges.length,
+        correlationCount: incident.correlations.length,
+        warningCount: warnings.length,
+      },
+      correlationKeys: [`incident:${incident.id}`, "graph:layered-v1"],
+    });
+
+    await this.persist(incident);
+
+    return {
+      incident,
+      summary: {
+        entityCount: incident.entities.length,
+        edgeCount: incident.graphEdges.length,
+        correlationCount: incident.correlations.length,
+        warningCount: warnings.length,
+      },
+      warnings,
+    };
   }
 
   async ingestWebhook(

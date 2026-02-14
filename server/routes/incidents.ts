@@ -10,6 +10,7 @@ import {
   IncidentSource,
   IncidentStatus,
   IncidentWebhookRequest,
+  InvestigateIncidentRequest,
   ListIncidentsQuery,
   UpdateIncidentRequest,
 } from "@shared/incident";
@@ -269,6 +270,22 @@ export const handleIncidentIntakeWebhook: RequestHandler = async (req, res) => {
     const payload = (req.body || {}) as IncidentWebhookRequest;
     const incident = await getIncidentService().ingestWebhook("webhook", payload);
     return res.status(202).json({ incident });
+  } catch (error) {
+    const mapped = mapIncidentError(error);
+    return res.status(mapped.status).json({
+      error: {
+        code: mapped.code,
+        message: mapped.message,
+      },
+    });
+  }
+};
+
+export const handleInvestigateIncident: RequestHandler = async (req, res) => {
+  try {
+    const payload = (req.body || {}) as InvestigateIncidentRequest;
+    const result = await getIncidentService().investigateIncident(req.params.incidentId, payload);
+    return res.json(result);
   } catch (error) {
     const mapped = mapIncidentError(error);
     return res.status(mapped.status).json({

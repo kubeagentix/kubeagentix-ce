@@ -12,6 +12,7 @@ const updateIncidentMock = vi.fn();
 const createActionMock = vi.fn();
 const approveActionMock = vi.fn();
 const executeActionMock = vi.fn();
+const investigateIncidentMock = vi.fn();
 
 vi.mock("@/hooks/useIncidents", () => ({
   useIncidents: () => ({
@@ -24,6 +25,7 @@ vi.mock("@/hooks/useIncidents", () => ({
     createAction: createActionMock,
     approveAction: approveActionMock,
     executeAction: executeActionMock,
+    investigateIncident: investigateIncidentMock,
   }),
 }));
 
@@ -37,6 +39,7 @@ function buildIncident(overrides: Partial<IncidentCase> = {}): IncidentCase {
     owner: "oncall",
     services: ["checkout"],
     entities: [],
+    graphEdges: [],
     source: "manual",
     externalRefs: [],
     correlations: [],
@@ -89,6 +92,16 @@ function primeMocks(incident: IncidentCase): void {
   createActionMock.mockResolvedValue(incident);
   approveActionMock.mockResolvedValue(incident);
   executeActionMock.mockResolvedValue(incident);
+  investigateIncidentMock.mockResolvedValue({
+    incident,
+    summary: {
+      entityCount: incident.entities.length,
+      edgeCount: incident.graphEdges.length,
+      correlationCount: incident.correlations.length,
+      warningCount: 0,
+    },
+    warnings: [],
+  });
 }
 
 describe("Incident page", () => {

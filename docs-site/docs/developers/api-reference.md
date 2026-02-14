@@ -433,6 +433,24 @@ Important:
 - Actions requiring approval return `403` if executed before approval.
 - Command actions still run through command policy controls.
 
+### `POST /api/incidents/:incidentId/investigate`
+Run layered Kubernetes-first investigation graph enrichment for an incident.
+
+Request excerpt:
+```json
+{
+  "actor": "sre-oncall",
+  "clusterContext": "prod-us-west",
+  "namespace": "checkout",
+  "maxEntities": 200
+}
+```
+
+Response includes:
+- updated incident with `entities`, `graphEdges`, and `correlations`
+- summary counts (`entityCount`, `edgeCount`, `correlationCount`, `warningCount`)
+- warnings for partial-data/degraded paths (without hard failure)
+
 ### `POST /api/incidents/:incidentId/sync/jira`
 ### `POST /api/incidents/:incidentId/sync/slack`
 Force external sync and upsert external reference metadata.
