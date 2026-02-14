@@ -1,68 +1,254 @@
-/**
- * Incident and Analysis Types
- */
+import type { RcaResourceRef } from "./rca";
 
-export type IncidentSeverity = "critical" | "warning" | "info";
+export type IncidentSeverity =
+  | "critical"
+  | "high"
+  | "medium"
+  | "low"
+  | "warning"
+  | "info";
 
-export interface Incident {
+export type IncidentStatus =
+  | "new"
+  | "triage"
+  | "investigating"
+  | "mitigated"
+  | "monitoring"
+  | "resolved"
+  | "postmortem";
+
+export type IncidentSource = "manual" | "quickdx" | "webhook" | "jira" | "slack" | "system";
+
+export type IncidentLayer =
+  | "edge"
+  | "app"
+  | "dependency"
+  | "platform"
+  | "infra"
+  | "network"
+  | "security"
+  | "rbac"
+  | "observability";
+
+export interface IncidentEntity {
   id: string;
-  title: string;
-  description: string;
-  severity: IncidentSeverity;
-  status: "open" | "investigating" | "resolved";
-  createdAt: number;
-  updatedAt: number;
-  affectedServices: string[];
-  affectedResources: Array<{
-    kind: string;
-    name: string;
-    namespace: string;
-  }>;
-  detectedBy: string; // e.g., "AlertManager", "Agent", "Manual"
+  layer: IncidentLayer;
+  kind: string;
+  name: string;
+  namespace?: string;
+  service?: string;
+  metadata?: Record<string, string>;
 }
 
-export interface IncidentAnalysis {
-  incidentId: string;
-  rootCause: string;
-  rootCauseConfidence: number; // 0-100
-  timeline: AnalysisTimelineEvent[];
-  impacts: string[];
-  recommendations: Recommendation[];
-  affectedMetrics: string[];
-  correlations: MetricCorrelation[];
-}
+export type IncidentTimelineEventType =
+  | "intake"
+  | "triage"
+  | "analysis"
+  | "action"
+  | "sync"
+  | "status"
+  | "diagnosis"
+  | "note";
 
-export interface AnalysisTimelineEvent {
+export interface IncidentTimelineEvent {
+  id: string;
   timestamp: number;
+  type: IncidentTimelineEventType;
+  actor: string;
+  source: IncidentSource | "api";
+  message: string;
+  payload?: Record<string, unknown>;
+  correlationKeys?: string[];
+}
+
+export type IncidentActionType = "command" | "skill" | "manual";
+export type IncidentActionRisk = "critical" | "high" | "medium" | "low";
+export type IncidentActionApprovalState = "pending" | "approved" | "rejected" | "executed";
+
+export interface IncidentActionExecution {
+  success: boolean;
+  startedAt: number;
+  finishedAt: number;
+  output?: string;
+  error?: string;
+  commandExitCode?: number;
+  dryRun?: boolean;
+}
+
+export interface IncidentAction {
+  id: string;
   title: string;
   description?: string;
-  type: "detection" | "escalation" | "analysis" | "action";
-  status: "complete" | "pending" | "failed";
-}
-
-export interface Recommendation {
-  id: string;
-  action: string;
-  description: string;
-  severity: "critical" | "high" | "medium" | "low";
-  estimatedImpact: string;
-  commands?: string[];
+  type: IncidentActionType;
+  risk: IncidentActionRisk;
   requiresApproval: boolean;
+  approvalState: IncidentActionApprovalState;
+  proposedBy: string;
+  command?: string;
+  skillId?: string;
+  skillInput?: Record<string, string>;
+  dryRun?: boolean;
+  approvedBy?: string;
+  approvedAt?: number;
+  rejectedBy?: string;
+  rejectedAt?: number;
+  rejectionReason?: string;
+  executedBy?: string;
+  executedAt?: number;
+  execution?: IncidentActionExecution;
+  createdAt: number;
+  updatedAt: number;
 }
 
-export interface MetricCorrelation {
-  metric1: string;
-  metric2: string;
-  correlationCoefficient: number; // -1 to 1
-  strength: "very_high" | "high" | "medium" | "low";
+export type IncidentExternalSystem = "jira" | "slack";
+export type IncidentExternalSyncStatus = "pending" | "success" | "failed";
+
+export interface IncidentExternalRef {
+  system: IncidentExternalSystem;
+  externalId: string;
+  url?: string;
+  syncStatus: IncidentExternalSyncStatus;
+  lastSyncedAt?: number;
+  metadata?: Record<string, string>;
 }
 
-export interface IncidentAlert {
+export interface IncidentCorrelation {
+  signalId: string;
+  entityIds: string[];
+  confidence: number;
+  rationale: string;
+}
+
+export interface IncidentDiagnosisRef {
+  diagnosisId: string;
+  resource: RcaResourceRef;
+  probableRootCause: string;
+  attachedAt: number;
+  attachedBy: string;
+}
+
+export interface IncidentCase {
   id: string;
-  incidentId: string;
-  type: "alert" | "escalation" | "update";
-  message: string;
+  title: string;
+  description: string;
+  status: IncidentStatus;
   severity: IncidentSeverity;
-  timestamp: number;
-  source: string;
+  owner?: string;
+  services: string[];
+  entities: IncidentEntity[];
+  source: IncidentSource;
+  externalRefs: IncidentExternalRef[];
+  correlations: IncidentCorrelation[];
+  diagnoses: IncidentDiagnosisRef[];
+  actions: IncidentAction[];
+  timeline: IncidentTimelineEvent[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface IncidentSummary {
+  id: string;
+  title: string;
+  status: IncidentStatus;
+  severity: IncidentSeverity;
+  owner?: string;
+  source: IncidentSource;
+  services: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CreateIncidentRequest {
+  title: string;
+  description?: string;
+  status?: IncidentStatus;
+  severity?: IncidentSeverity;
+  owner?: string;
+  services?: string[];
+  entities?: IncidentEntity[];
+  source?: IncidentSource;
+  actor?: string;
+  externalRefs?: IncidentExternalRef[];
+  correlations?: IncidentCorrelation[];
+}
+
+export interface UpdateIncidentRequest {
+  title?: string;
+  description?: string;
+  status?: IncidentStatus;
+  severity?: IncidentSeverity;
+  owner?: string;
+  services?: string[];
+  actor?: string;
+}
+
+export interface AttachIncidentDiagnosisRequest {
+  diagnosisId: string;
+  attachedBy?: string;
+  note?: string;
+}
+
+export interface CreateIncidentActionRequest {
+  title: string;
+  description?: string;
+  type: IncidentActionType;
+  risk?: IncidentActionRisk;
+  requiresApproval?: boolean;
+  proposedBy?: string;
+  command?: string;
+  skillId?: string;
+  skillInput?: Record<string, string>;
+  dryRun?: boolean;
+}
+
+export interface ApproveIncidentActionRequest {
+  approved?: boolean;
+  actor?: string;
+  reason?: string;
+}
+
+export interface ExecuteIncidentActionRequest {
+  actor?: string;
+  dryRun?: boolean;
+  context?: string;
+  namespace?: string;
+}
+
+export interface ForceIncidentSyncRequest {
+  actor?: string;
+  externalId?: string;
+  url?: string;
+  metadata?: Record<string, string>;
+}
+
+export interface IncidentWebhookRequest {
+  source?: IncidentSource | IncidentExternalSystem;
+  externalId?: string;
+  title?: string;
+  description?: string;
+  severity?: IncidentSeverity;
+  status?: IncidentStatus;
+  owner?: string;
+  services?: string[];
+  actor?: string;
+  url?: string;
+  eventId?: string;
+  updatedAt?: number;
+  metadata?: Record<string, string>;
+}
+
+export interface ListIncidentsQuery {
+  status?: IncidentStatus;
+  severity?: IncidentSeverity;
+  source?: IncidentSource;
+  owner?: string;
+  service?: string;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListIncidentsResponse {
+  items: IncidentSummary[];
+  total: number;
 }

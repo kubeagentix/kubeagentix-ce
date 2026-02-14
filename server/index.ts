@@ -33,6 +33,21 @@ import {
   handleExecuteSkill,
 } from "./routes/skills";
 import { handleDiagnoseResource, handleGetDiagnosis } from "./routes/rca";
+import {
+  handleApproveIncidentAction,
+  handleAttachIncidentDiagnosis,
+  handleCreateIncident,
+  handleCreateIncidentAction,
+  handleExecuteIncidentAction,
+  handleGetIncident,
+  handleIncidentIntakeWebhook,
+  handleIncidentJiraWebhook,
+  handleIncidentSlackWebhook,
+  handleListIncidents,
+  handleSyncIncidentJira,
+  handleSyncIncidentSlack,
+  handleUpdateIncident,
+} from "./routes/incidents";
 
 // Import agent engine and initialize providers
 import { getAgentEngine } from "./agent/engine";
@@ -127,6 +142,21 @@ export function createServer(): Express {
   // Guided RCA routes
   app.post("/api/rca/diagnose", handleDiagnoseResource);
   app.get("/api/rca/diagnose/:diagnosisId", handleGetDiagnosis);
+
+  // Incident routes
+  app.post("/api/incidents", handleCreateIncident);
+  app.get("/api/incidents", handleListIncidents);
+  app.get("/api/incidents/:incidentId", handleGetIncident);
+  app.patch("/api/incidents/:incidentId", handleUpdateIncident);
+  app.post("/api/incidents/:incidentId/diagnoses", handleAttachIncidentDiagnosis);
+  app.post("/api/incidents/:incidentId/actions", handleCreateIncidentAction);
+  app.post("/api/incidents/:incidentId/actions/:actionId/approve", handleApproveIncidentAction);
+  app.post("/api/incidents/:incidentId/actions/:actionId/execute", handleExecuteIncidentAction);
+  app.post("/api/incidents/:incidentId/sync/jira", handleSyncIncidentJira);
+  app.post("/api/incidents/:incidentId/sync/slack", handleSyncIncidentSlack);
+  app.post("/api/incidents/webhooks/jira", handleIncidentJiraWebhook);
+  app.post("/api/incidents/webhooks/slack", handleIncidentSlackWebhook);
+  app.post("/api/incidents/intake/webhook", handleIncidentIntakeWebhook);
 
   // Skill routes (runbook replacement)
   app.get("/api/skills", handleListSkills);

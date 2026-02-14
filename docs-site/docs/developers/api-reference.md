@@ -359,6 +359,91 @@ Important evidence sections returned in `evidence[]`:
 ### `GET /api/rca/diagnose/:diagnosisId`
 Retrieves previously generated diagnosis.
 
+## Incident APIs
+
+Incident workflow is service/system scoped (distinct from QuickDx resource-scoped diagnosis).
+
+### `POST /api/incidents`
+Create a new incident.
+
+Request excerpt:
+```json
+{
+  "title": "Checkout API elevated 5xx",
+  "description": "Detected by on-call from alerts",
+  "severity": "high",
+  "source": "manual",
+  "services": ["checkout", "payments"],
+  "owner": "platform-oncall"
+}
+```
+
+### `GET /api/incidents`
+List incident inbox with optional filters.
+
+Query params:
+- `status`
+- `severity`
+- `source`
+- `owner`
+- `service`
+- `q`
+- `limit`
+- `offset`
+
+### `GET /api/incidents/:incidentId`
+Get full incident detail.
+
+### `PATCH /api/incidents/:incidentId`
+Update mutable incident fields.
+
+Request excerpt:
+```json
+{
+  "status": "triage",
+  "owner": "sre-oncall",
+  "actor": "sre-oncall"
+}
+```
+
+Lifecycle:
+`new -> triage -> investigating -> mitigated -> monitoring -> resolved -> postmortem`
+
+### `POST /api/incidents/:incidentId/diagnoses`
+Attach an existing QuickDx diagnosis to incident context.
+
+Request:
+```json
+{
+  "diagnosisId": "uuid",
+  "attachedBy": "quickdx"
+}
+```
+
+### `POST /api/incidents/:incidentId/actions`
+Create incident action proposal (`command`, `skill`, or `manual`).
+
+### `POST /api/incidents/:incidentId/actions/:actionId/approve`
+Approve or reject an action.
+
+### `POST /api/incidents/:incidentId/actions/:actionId/execute`
+Execute approved action.
+
+Important:
+- Actions requiring approval return `403` if executed before approval.
+- Command actions still run through command policy controls.
+
+### `POST /api/incidents/:incidentId/sync/jira`
+### `POST /api/incidents/:incidentId/sync/slack`
+Force external sync and upsert external reference metadata.
+
+### `POST /api/incidents/webhooks/jira`
+### `POST /api/incidents/webhooks/slack`
+Inbound external updates (idempotent via external reference and event metadata).
+
+### `POST /api/incidents/intake/webhook`
+Generic incident intake endpoint for external alert/report sources.
+
 ## Skills APIs (Runbooks Replacement)
 
 ### `GET /api/skills`
