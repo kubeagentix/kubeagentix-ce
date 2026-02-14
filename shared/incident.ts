@@ -222,6 +222,7 @@ export interface ForceIncidentSyncRequest {
 }
 
 export interface IncidentWebhookRequest {
+  incidentId?: string;
   source?: IncidentSource | IncidentExternalSystem;
   externalId?: string;
   title?: string;

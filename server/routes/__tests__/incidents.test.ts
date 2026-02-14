@@ -14,6 +14,8 @@ describe("Incident routes", () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(path.join(os.tmpdir(), "incident-routes-"));
     process.env.INCIDENT_STORE_DIR = tempDir;
+    process.env.INCIDENT_JIRA_SYNC_MODE = "mock";
+    process.env.INCIDENT_SLACK_SYNC_MODE = "mock";
     resetIncidentServiceForTests();
 
     const app = createServer();
@@ -34,6 +36,10 @@ describe("Incident routes", () => {
     });
     resetIncidentServiceForTests();
     delete process.env.INCIDENT_STORE_DIR;
+    delete process.env.INCIDENT_JIRA_SYNC_MODE;
+    delete process.env.INCIDENT_JIRA_WEBHOOK_URL;
+    delete process.env.INCIDENT_SLACK_SYNC_MODE;
+    delete process.env.INCIDENT_SLACK_WEBHOOK_URL;
     await rm(tempDir, { recursive: true, force: true });
   });
 
@@ -146,5 +152,77 @@ describe("Incident routes", () => {
     const secondPayload = (await second.json()) as { incident: { id: string; timeline: any[] } };
     expect(secondPayload.incident.id).toBe(firstPayload.incident.id);
     expect(secondPayload.incident.timeline.length).toBe(firstPayload.incident.timeline.length);
+  });
+
+  it("syncs jira refs and surfaces recoverable failure state", async () => {
+    const create = await fetch(`${baseUrl}/api/incidents`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Sync incident" }),
+    });
+    const incidentId = ((await create.json()) as { incident: { id: string } }).incident.id;
+
+    const firstSync = await fetch(`${baseUrl}/api/incidents/${encodeURIComponent(incidentId)}/sync/jira`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actor: "operator" }),
+    });
+
+    expect(firstSync.status).toBe(200);
+    const firstPayload = (await firstSync.json()) as {
+      incident: { externalRefs: Array<{ syncStatus: string; externalId: string }> };
+    };
+    expect(firstPayload.incident.externalRefs[0]?.syncStatus).toBe("success");
+    expect(firstPayload.incident.externalRefs[0]?.externalId).toMatch(/^JIRA-/);
+
+    process.env.INCIDENT_JIRA_SYNC_MODE = "disabled";
+    resetIncidentServiceForTests();
+
+    const failedSync = await fetch(`${baseUrl}/api/incidents/${encodeURIComponent(incidentId)}/sync/jira`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actor: "operator" }),
+    });
+
+    expect(failedSync.status).toBe(502);
+    const failedPayload = (await failedSync.json()) as { error: { code: string } };
+    expect(failedPayload.error.code).toBe("INCIDENT_SYNC_FAILED");
+
+    const getAfterFailure = await fetch(`${baseUrl}/api/incidents/${encodeURIComponent(incidentId)}`);
+    const failureState = (await getAfterFailure.json()) as {
+      incident: { externalRefs: Array<{ syncStatus: string; metadata?: Record<string, string> }> };
+    };
+    expect(failureState.incident.externalRefs[0]?.syncStatus).toBe("failed");
+    expect(failureState.incident.externalRefs[0]?.metadata?.retryable).toBe("true");
+  });
+
+  it("uses updatedAt to ignore stale webhook updates", async () => {
+    const first = await fetch(`${baseUrl}/api/incidents/webhooks/slack`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        externalId: "slack-thread-1",
+        updatedAt: 200,
+        status: "triage",
+        severity: "high",
+        title: "Latency thread",
+      }),
+    });
+    expect(first.status).toBe(202);
+    const firstPayload = (await first.json()) as { incident: { id: string; status: string } };
+
+    const stale = await fetch(`${baseUrl}/api/incidents/webhooks/slack`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        incidentId: firstPayload.incident.id,
+        externalId: "slack-thread-1",
+        updatedAt: 100,
+        status: "resolved",
+      }),
+    });
+    expect(stale.status).toBe(202);
+    const stalePayload = (await stale.json()) as { incident: { status: string } };
+    expect(stalePayload.incident.status).toBe("triage");
   });
 });

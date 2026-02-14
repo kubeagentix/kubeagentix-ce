@@ -48,6 +48,10 @@ function mapIncidentError(error: unknown): { status: number; code: string; messa
     return { status: 403, code: error.code, message: error.message };
   }
 
+  if (error.code === "INCIDENT_SYNC_FAILED") {
+    return { status: 502, code: error.code, message: error.message };
+  }
+
   return { status: 500, code: error.code, message: error.message };
 }
 

@@ -125,6 +125,49 @@ describe("IncidentService", () => {
     expect(commandExecute).toHaveBeenCalledTimes(1);
   });
 
+  it("records sync failure state and supports retry recovery", async () => {
+    const jiraSync = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Jira timeout"))
+      .mockResolvedValueOnce({
+        externalId: "JIRA-2201",
+        url: "https://jira.example/browse/JIRA-2201",
+        metadata: { ticketType: "incident" },
+      });
+
+    const syncService = new IncidentService({
+      dataDir: tempDir,
+      now,
+      diagnosisLookup,
+      commandExecute,
+      skillExecute,
+      externalSyncAdapters: {
+        jira: jiraSync,
+      },
+    });
+
+    const incident = await syncService.createIncident({ title: "Sync retry test" });
+
+    await expect(
+      syncService.syncExternal(incident.id, "jira", {
+        actor: "operator",
+      }),
+    ).rejects.toMatchObject({
+      code: "INCIDENT_SYNC_FAILED",
+    });
+
+    const failedState = await syncService.getIncidentById(incident.id);
+    expect(failedState.externalRefs[0]?.syncStatus).toBe("failed");
+    expect(failedState.externalRefs[0]?.metadata?.lastSyncError).toContain("Jira timeout");
+
+    const recovered = await syncService.syncExternal(incident.id, "jira", {
+      actor: "operator",
+    });
+    expect(recovered.externalRefs[0]?.syncStatus).toBe("success");
+    expect(recovered.externalRefs[0]?.externalId).toBe("JIRA-2201");
+    expect(jiraSync).toHaveBeenCalledTimes(2);
+  });
+
   it("handles webhook updates idempotently by event id", async () => {
     const created = await service.ingestWebhook("jira", {
       externalId: "JIRA-123",
@@ -160,5 +203,46 @@ describe("IncidentService", () => {
     expect(duplicate.timeline.length).toBe(firstEventCount);
     expect(duplicate.status).toBe("triage");
     expect(duplicate.severity).toBe("critical");
+  });
+
+  it("applies webhook updates only when updatedAt is newer and supports incidentId targeting", async () => {
+    const incident = await service.createIncident({
+      title: "Targeted incident",
+      source: "manual",
+    });
+
+    const linked = await service.ingestWebhook("jira", {
+      incidentId: incident.id,
+      externalId: "JIRA-900",
+      updatedAt: 1_700_000_000_100,
+      status: "triage",
+      severity: "high",
+    });
+
+    expect(linked.id).toBe(incident.id);
+    expect(linked.externalRefs[0]?.externalId).toBe("JIRA-900");
+    expect(linked.status).toBe("triage");
+
+    const stale = await service.ingestWebhook("jira", {
+      incidentId: incident.id,
+      externalId: "JIRA-900",
+      updatedAt: 1_700_000_000_050,
+      status: "resolved",
+      severity: "critical",
+    });
+
+    expect(stale.status).toBe("triage");
+    expect(stale.severity).toBe("high");
+
+    const newer = await service.ingestWebhook("jira", {
+      incidentId: incident.id,
+      externalId: "JIRA-900",
+      updatedAt: 1_700_000_000_200,
+      status: "resolved",
+      severity: "critical",
+    });
+
+    expect(newer.status).toBe("resolved");
+    expect(newer.severity).toBe("critical");
   });
 });

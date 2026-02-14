@@ -137,6 +137,13 @@ See `.env.example` for full set. Typical variables:
 - `CLAUDE_CODE_OAUTH_TOKEN` (optional subscription/OAuth token for Claude Code provider, headless)
 - `CLAUDE_CODE_AUTH_TOKEN` (legacy alias, still accepted)
 - `CLAUDE_CODE_SETTING_SOURCES` (default `project,local` to avoid user hook side-effects in non-interactive mode)
+- `INCIDENT_JIRA_SYNC_MODE` (`mock|webhook|disabled`, default `mock`)
+- `INCIDENT_SLACK_SYNC_MODE` (`mock|webhook|disabled`, default `mock`)
+- `INCIDENT_JIRA_WEBHOOK_URL` (required when Jira mode is `webhook`)
+- `INCIDENT_SLACK_WEBHOOK_URL` (required when Slack mode is `webhook`)
+- `INCIDENT_JIRA_BASE_URL` (optional, used for mock URL generation)
+- `INCIDENT_SLACK_BASE_URL` (optional, used for mock URL generation)
+- `INCIDENT_SYNC_TIMEOUT_MS` (default `8000`)
 
 If no LLM keys are set, heuristic fallback paths remain available for core diagnosis/suggestion flows.
 
@@ -164,6 +171,10 @@ If no LLM keys are set, heuristic fallback paths remain available for core diagn
   the app now forwards this token per request (without requiring env injection).
   If auth still fails in Docker, set `CLAUDE_CODE_OAUTH_TOKEN` explicitly and recreate containers.
   You can also paste a Claude auth token in Settings > Claude Code provider (optional token field).
+- Incident sync webhook failures:
+  If `POST /api/incidents/:incidentId/sync/jira` or `/sync/slack` returns `INCIDENT_SYNC_FAILED`,
+  check sync mode and webhook URL env vars. Failed sync attempts are persisted with `syncStatus=failed`,
+  and can be retried by calling the same sync endpoint again after fixing configuration.
 - Port already in use:
   Run with a different port:
   `PORT=4100 npx kubeagentix-ce@latest`

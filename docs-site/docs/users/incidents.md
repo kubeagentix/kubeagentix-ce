@@ -37,3 +37,5 @@ The Dashboard shows an **Incident Inbox** panel with active incidents and quick 
 
 - Action execution requires approval when `requiresApproval=true`.
 - Incident data is persisted locally in CE runtime (`./data/incidents`).
+- Jira/Slack sync status is persisted on incident external refs (`pending`, `success`, `failed`).
+- If external sync fails, fix connector config and retry the same sync endpoint; failures are recoverable.

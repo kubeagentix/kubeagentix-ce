@@ -38,7 +38,7 @@ Current status:
 - ✅ Phase 0 completed
 - ✅ Phase 1 completed
 - ✅ Phase 2 completed
-- ⏳ Phase 3 not started
+- ✅ Phase 3 completed
 - ⏳ Phase 4 not started
 - ⏳ Phase 5 not started
 
@@ -129,6 +129,13 @@ Key API surface:
 - `POST /api/incidents/:incidentId/sync/slack`
 - `POST /api/incidents/webhooks/jira`
 - `POST /api/incidents/webhooks/slack`
+
+Implementation notes:
+
+- External sync now transitions through `pending -> success|failed` and persists retry metadata (`lastSyncError`, retryability, timestamps).
+- Sync adapters support `mock`, `webhook`, and `disabled` modes through environment configuration.
+- Inbound updates reconcile idempotently using `eventId` dedupe and `incidentId + externalRef + updatedAt` convergence rules.
+- Route and service tests now cover sync success, recoverable failure, and stale webhook update suppression.
 
 Exit criteria:
 

@@ -437,9 +437,43 @@ Important:
 ### `POST /api/incidents/:incidentId/sync/slack`
 Force external sync and upsert external reference metadata.
 
+Request excerpt:
+```json
+{
+  "actor": "sre-oncall",
+  "externalId": "JIRA-221",
+  "url": "https://jira.example/browse/JIRA-221",
+  "metadata": {
+    "component": "checkout"
+  }
+}
+```
+
+Notes:
+- Sync mode is controlled by env vars (`INCIDENT_JIRA_SYNC_MODE`, `INCIDENT_SLACK_SYNC_MODE`).
+- Failed sync attempts return `502` with `INCIDENT_SYNC_FAILED`, while preserving `syncStatus=failed` for retry visibility.
+- Reissuing the same sync endpoint after fixing configuration is the retry path.
+
 ### `POST /api/incidents/webhooks/jira`
 ### `POST /api/incidents/webhooks/slack`
 Inbound external updates (idempotent via external reference and event metadata).
+
+Webhook request excerpt:
+```json
+{
+  "incidentId": "inc-optional-local-id",
+  "externalId": "JIRA-221",
+  "eventId": "evt-9001",
+  "updatedAt": 1739160000000,
+  "status": "triage",
+  "severity": "high",
+  "title": "Checkout API elevated 5xx"
+}
+```
+
+Idempotency strategy:
+- Event dedupe by `eventId` when provided.
+- Convergence by `incidentId + externalRef + updatedAt` (older `updatedAt` updates are ignored).
 
 ### `POST /api/incidents/intake/webhook`
 Generic incident intake endpoint for external alert/report sources.

@@ -10,6 +10,7 @@ import type {
   ForceIncidentSyncRequest,
   IncidentAction,
   IncidentCase,
+  IncidentExternalRef,
   IncidentExternalSystem,
   IncidentSource,
   IncidentStatus,
@@ -26,6 +27,7 @@ import { getCommandBroker } from "../commands/broker";
 
 const DEFAULT_DATA_DIR = path.join(process.cwd(), "data", "incidents");
 const INDEX_FILE = "index.json";
+const DEFAULT_SYNC_TIMEOUT_MS = 8000;
 
 const ALLOWED_STATUS_TRANSITIONS: Record<IncidentStatus, IncidentStatus[]> = {
   new: ["triage", "investigating", "resolved"],
@@ -46,6 +48,7 @@ export class IncidentServiceError extends Error {
     | "INCIDENT_ACTION_NOT_FOUND"
     | "INCIDENT_ACTION_NOT_APPROVED"
     | "INCIDENT_ACTION_INVALID"
+    | "INCIDENT_SYNC_FAILED"
     | "INCIDENT_STORE_ERROR";
 
   constructor(code: IncidentServiceError["code"], message: string) {
@@ -64,7 +67,27 @@ interface IncidentServiceOptions {
   diagnosisLookup?: typeof getDiagnosisById;
   commandExecute?: ReturnType<typeof getCommandBroker>["execute"];
   skillExecute?: typeof executeSkill;
+  externalSyncAdapters?: Partial<Record<IncidentExternalSystem, IncidentExternalSyncAdapter>>;
 }
+
+type IncidentExternalSyncMode = "mock" | "webhook" | "disabled";
+
+interface IncidentExternalSyncAdapterInput {
+  system: IncidentExternalSystem;
+  incident: IncidentCase;
+  payload: ForceIncidentSyncRequest;
+  existingRef?: IncidentExternalRef;
+}
+
+interface IncidentExternalSyncResult {
+  externalId: string;
+  url?: string;
+  metadata?: Record<string, string>;
+}
+
+type IncidentExternalSyncAdapter = (
+  input: IncidentExternalSyncAdapterInput,
+) => Promise<IncidentExternalSyncResult>;
 
 function normalizeServices(input?: string[]): string[] {
   return Array.from(new Set((input || []).map((item) => item.trim()).filter(Boolean))).sort();
@@ -89,12 +112,163 @@ function includesCaseInsensitive(target: string, needle?: string): boolean {
   return target.toLowerCase().includes(needle.toLowerCase());
 }
 
+function resolveSyncMode(system: IncidentExternalSystem): IncidentExternalSyncMode {
+  const key = system === "jira" ? "INCIDENT_JIRA_SYNC_MODE" : "INCIDENT_SLACK_SYNC_MODE";
+  const rawValue = (process.env[key] || "mock").trim().toLowerCase();
+  if (rawValue === "mock" || rawValue === "webhook" || rawValue === "disabled") {
+    return rawValue;
+  }
+  return "mock";
+}
+
+function getWebhookUrl(system: IncidentExternalSystem): string | undefined {
+  const key = system === "jira" ? "INCIDENT_JIRA_WEBHOOK_URL" : "INCIDENT_SLACK_WEBHOOK_URL";
+  const value = process.env[key]?.trim();
+  return value || undefined;
+}
+
+function getExternalBaseUrl(system: IncidentExternalSystem): string | undefined {
+  const key = system === "jira" ? "INCIDENT_JIRA_BASE_URL" : "INCIDENT_SLACK_BASE_URL";
+  const value = process.env[key]?.trim();
+  return value || undefined;
+}
+
+function toTimestamp(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toMetadata(
+  ...maps: Array<Record<string, string> | undefined>
+): Record<string, string> | undefined {
+  const merged: Record<string, string> = {};
+  for (const map of maps) {
+    if (!map) continue;
+    for (const [key, value] of Object.entries(map)) {
+      if (value === undefined || value === null) continue;
+      merged[key] = String(value);
+    }
+  }
+
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+function defaultExternalId(system: IncidentExternalSystem, incident: IncidentCase): string {
+  const suffix = incident.id.replace(/^inc-/, "").slice(0, 8).toUpperCase();
+  if (system === "jira") return `JIRA-${suffix}`;
+  return `slack-${suffix.toLowerCase()}`;
+}
+
+function parseTimeoutMs(): number {
+  const parsed = Number(process.env.INCIDENT_SYNC_TIMEOUT_MS || DEFAULT_SYNC_TIMEOUT_MS);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_SYNC_TIMEOUT_MS;
+  return Math.min(parsed, 60_000);
+}
+
+function buildDefaultExternalSyncAdapters(
+  now: () => number,
+): Record<IncidentExternalSystem, IncidentExternalSyncAdapter> {
+  const webhookAdapter =
+    (system: IncidentExternalSystem): IncidentExternalSyncAdapter =>
+    async ({ incident, payload, existingRef }) => {
+      const mode = resolveSyncMode(system);
+      if (mode === "disabled") {
+        throw new Error(`${system.toUpperCase()} sync is disabled by environment`);
+      }
+
+      const fallbackExternalId =
+        payload.externalId?.trim() || existingRef?.externalId || defaultExternalId(system, incident);
+
+      if (mode === "mock") {
+        const baseUrl = getExternalBaseUrl(system);
+        return {
+          externalId: fallbackExternalId,
+          url: payload.url || existingRef?.url || (baseUrl ? `${baseUrl}/${fallbackExternalId}` : undefined),
+          metadata: toMetadata(payload.metadata, {
+            mode: "mock",
+            lastMockSyncAt: String(now()),
+          }),
+        };
+      }
+
+      const webhookUrl = getWebhookUrl(system);
+      if (!webhookUrl) {
+        throw new Error(`${system.toUpperCase()} webhook URL not configured`);
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), parseTimeoutMs());
+
+      try {
+        const response = await fetch(webhookUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            incidentId: incident.id,
+            title: incident.title,
+            description: incident.description,
+            status: incident.status,
+            severity: incident.severity,
+            owner: incident.owner,
+            services: incident.services,
+            externalId: fallbackExternalId,
+            source: "kubeagentix-ce",
+            metadata: payload.metadata,
+          }),
+          signal: controller.signal,
+        });
+
+        const contentType = response.headers.get("content-type") || "";
+        const responsePayload = contentType.includes("application/json")
+          ? ((await response.json().catch(() => ({}))) as Record<string, unknown>)
+          : {};
+
+        if (!response.ok) {
+          const message = (responsePayload.error || responsePayload.message || "").toString().trim();
+          throw new Error(
+            `${system.toUpperCase()} webhook sync failed (${response.status})${message ? `: ${message}` : ""}`,
+          );
+        }
+
+        const responseMetadata: Record<string, string> = {};
+        if (responsePayload.metadata && typeof responsePayload.metadata === "object") {
+          for (const [key, value] of Object.entries(
+            responsePayload.metadata as Record<string, unknown>,
+          )) {
+            responseMetadata[key] = String(value);
+          }
+        }
+
+        const resolvedUrl = responsePayload.url
+          ? String(responsePayload.url)
+          : payload.url || existingRef?.url;
+
+        return {
+          externalId: String(responsePayload.externalId || fallbackExternalId),
+          url: resolvedUrl,
+          metadata: toMetadata(payload.metadata, responseMetadata, {
+            mode: "webhook",
+            lastWebhookSyncAt: String(now()),
+          }),
+        };
+      } finally {
+        clearTimeout(timeout);
+      }
+    };
+
+  return {
+    jira: webhookAdapter("jira"),
+    slack: webhookAdapter("slack"),
+  };
+}
+
 export class IncidentService {
   private readonly dataDir: string;
   private readonly now: () => number;
   private readonly diagnosisLookup: typeof getDiagnosisById;
   private readonly commandExecute: ReturnType<typeof getCommandBroker>["execute"];
   private readonly skillExecute: typeof executeSkill;
+  private readonly externalSyncAdapters: Record<IncidentExternalSystem, IncidentExternalSyncAdapter>;
   private readonly incidents = new Map<string, IncidentCase>();
   private initialized = false;
 
@@ -104,6 +278,10 @@ export class IncidentService {
     this.diagnosisLookup = options.diagnosisLookup || getDiagnosisById;
     this.commandExecute = options.commandExecute || ((request) => getCommandBroker().execute(request));
     this.skillExecute = options.skillExecute || executeSkill;
+    this.externalSyncAdapters = {
+      ...buildDefaultExternalSyncAdapters(this.now),
+      ...(options.externalSyncAdapters || {}),
+    };
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -434,6 +612,49 @@ export class IncidentService {
     return action;
   }
 
+  private upsertExternalRef(
+    incident: IncidentCase,
+    system: IncidentExternalSystem,
+    externalId: string,
+    url?: string,
+  ): IncidentExternalRef {
+    const existing = incident.externalRefs.find((ref) => ref.system === system);
+    if (existing) {
+      existing.externalId = externalId || existing.externalId;
+      existing.url = url || existing.url;
+      return existing;
+    }
+
+    const created: IncidentExternalRef = {
+      system,
+      externalId,
+      url,
+      syncStatus: "pending",
+      lastSyncedAt: this.now(),
+    };
+    incident.externalRefs.push(created);
+    return created;
+  }
+
+  private findIncidentForWebhook(
+    preferredIncidentId: string | undefined,
+    externalSystem: IncidentExternalSystem | undefined,
+    externalId: string,
+  ): IncidentCase | undefined {
+    if (preferredIncidentId) {
+      const preferred = this.incidents.get(preferredIncidentId);
+      if (preferred) return preferred;
+    }
+
+    if (!externalSystem) {
+      return undefined;
+    }
+
+    return Array.from(this.incidents.values()).find((item) =>
+      item.externalRefs.some((ref) => ref.system === externalSystem && ref.externalId === externalId),
+    );
+  }
+
   async approveAction(
     incidentId: string,
     actionId: string,
@@ -574,42 +795,88 @@ export class IncidentService {
     payload: ForceIncidentSyncRequest,
   ): Promise<IncidentCase> {
     const incident = await this.getIncidentById(incidentId);
-
-    const externalId = payload.externalId || `${system}-${incident.id}`;
-    const now = this.now();
-    const existing = incident.externalRefs.find((ref) => ref.system === system);
-
-    if (existing) {
-      existing.externalId = externalId;
-      existing.url = payload.url || existing.url;
-      existing.syncStatus = "success";
-      existing.lastSyncedAt = now;
-      existing.metadata = {
-        ...(existing.metadata || {}),
-        ...(payload.metadata || {}),
-      };
-    } else {
-      incident.externalRefs.push({
-        system,
-        externalId,
-        url: payload.url,
-        syncStatus: "success",
-        lastSyncedAt: now,
-        metadata: payload.metadata,
-      });
-    }
+    const actor = payload.actor || "system";
+    const externalId = payload.externalId?.trim() || defaultExternalId(system, incident);
+    const existingRef = incident.externalRefs.find((ref) => ref.system === system);
+    const externalRef = this.upsertExternalRef(incident, system, externalId, payload.url);
+    externalRef.syncStatus = "pending";
+    externalRef.lastSyncedAt = this.now();
+    externalRef.metadata = toMetadata(externalRef.metadata, payload.metadata, {
+      syncMode: resolveSyncMode(system),
+      lastSyncAttemptAt: String(this.now()),
+      lastSyncActor: actor,
+    });
 
     this.pushTimeline(incident, {
       type: "sync",
-      actor: payload.actor || "system",
+      actor,
       source: system,
-      message: `${system.toUpperCase()} sync completed`,
-      payload: { externalId, url: payload.url },
-      correlationKeys: [`${system}:${externalId}`],
+      message: `${system.toUpperCase()} sync started`,
+      payload: { externalId: externalRef.externalId },
+      correlationKeys: [`${system}:${externalRef.externalId}`],
     });
 
-    await this.persist(incident);
-    return incident;
+    const adapter = this.externalSyncAdapters[system];
+    try {
+      const result = await adapter({
+        system,
+        incident,
+        payload,
+        existingRef,
+      });
+      const syncedAt = this.now();
+      externalRef.externalId = result.externalId?.trim() || externalRef.externalId;
+      externalRef.url = result.url?.trim() || payload.url || externalRef.url;
+      externalRef.syncStatus = "success";
+      externalRef.lastSyncedAt = syncedAt;
+      externalRef.metadata = toMetadata(externalRef.metadata, payload.metadata, result.metadata, {
+        lastSuccessfulSyncAt: String(syncedAt),
+        lastSyncError: "",
+      });
+
+      this.pushTimeline(incident, {
+        type: "sync",
+        actor,
+        source: system,
+        message: `${system.toUpperCase()} sync completed`,
+        payload: {
+          externalId: externalRef.externalId,
+          url: externalRef.url,
+        },
+        correlationKeys: [`${system}:${externalRef.externalId}`],
+      });
+
+      await this.persist(incident);
+      return incident;
+    } catch (syncError) {
+      const failedAt = this.now();
+      const message = syncError instanceof Error ? syncError.message : "External sync failed";
+      externalRef.syncStatus = "failed";
+      externalRef.lastSyncedAt = failedAt;
+      externalRef.metadata = toMetadata(externalRef.metadata, payload.metadata, {
+        lastFailedSyncAt: String(failedAt),
+        lastSyncError: message,
+        retryable: "true",
+      });
+
+      this.pushTimeline(incident, {
+        type: "sync",
+        actor,
+        source: system,
+        message: `${system.toUpperCase()} sync failed`,
+        payload: {
+          externalId: externalRef.externalId,
+          error: message,
+        },
+        correlationKeys: [`${system}:${externalRef.externalId}`],
+      });
+
+      await this.persist(incident);
+      throw new IncidentServiceError(
+        "INCIDENT_SYNC_FAILED",
+        `${system.toUpperCase()} sync failed: ${message}`,
+      );
+    }
   }
 
   async ingestWebhook(
@@ -622,6 +889,9 @@ export class IncidentService {
     if (!externalId) {
       throw new IncidentServiceError("INCIDENT_VALIDATION_ERROR", "externalId is required");
     }
+    const eventKey = payload.eventId?.trim();
+    const inboundUpdatedAt =
+      payload.updatedAt !== undefined ? toTimestamp(payload.updatedAt, this.now()) : undefined;
 
     const externalSystem =
       system === "jira" || payload.source === "jira"
@@ -630,12 +900,13 @@ export class IncidentService {
           ? "slack"
           : undefined;
 
-    const existingIncident = Array.from(this.incidents.values()).find((item) =>
-      item.externalRefs.some((ref) => ref.system === externalSystem && ref.externalId === externalId),
+    const existingIncident = this.findIncidentForWebhook(
+      payload.incidentId?.trim(),
+      externalSystem,
+      externalId,
     );
 
     if (existingIncident) {
-      const eventKey = payload.eventId?.trim();
       if (
         eventKey &&
         existingIncident.timeline.some((event) =>
@@ -645,8 +916,24 @@ export class IncidentService {
         return existingIncident;
       }
 
-      if (payload.status) {
-        this.assertTransition(existingIncident.status, payload.status);
+      const externalRef = externalSystem
+        ? this.upsertExternalRef(existingIncident, externalSystem, externalId, payload.url)
+        : undefined;
+
+      const lastInboundUpdatedAt = toTimestamp(
+        externalRef?.metadata?.lastInboundUpdatedAt,
+        0,
+      );
+      if (inboundUpdatedAt !== undefined && inboundUpdatedAt <= lastInboundUpdatedAt) {
+        return existingIncident;
+      }
+
+      if (payload.status && payload.status !== existingIncident.status) {
+        try {
+          this.assertTransition(existingIncident.status, payload.status);
+        } catch {
+          // External systems can send out-of-band status jumps; accept latest state for sync convergence.
+        }
         existingIncident.status = payload.status;
       }
       if (payload.severity) existingIncident.severity = payload.severity;
@@ -657,6 +944,17 @@ export class IncidentService {
       }
       if (payload.services?.length) {
         existingIncident.services = normalizeServices(payload.services);
+      }
+
+      if (externalRef) {
+        externalRef.syncStatus = "success";
+        externalRef.lastSyncedAt = this.now();
+        externalRef.metadata = toMetadata(externalRef.metadata, payload.metadata, {
+          ...(inboundUpdatedAt !== undefined
+            ? { lastInboundUpdatedAt: String(inboundUpdatedAt) }
+            : {}),
+          ...(eventKey ? { lastInboundEventId: eventKey } : {}),
+        });
       }
 
       this.pushTimeline(existingIncident, {
@@ -671,7 +969,8 @@ export class IncidentService {
         },
         correlationKeys: [
           `${system}:${externalId}`,
-          ...(payload.eventId ? [`event:${payload.eventId}`] : []),
+          ...(inboundUpdatedAt !== undefined ? [`updatedAt:${inboundUpdatedAt}`] : []),
+          ...(eventKey ? [`event:${eventKey}`] : []),
         ],
       });
 
@@ -696,20 +995,26 @@ export class IncidentService {
               url: payload.url,
               syncStatus: "success",
               lastSyncedAt: this.now(),
-              metadata: payload.metadata,
+              metadata: toMetadata(payload.metadata, {
+                ...(inboundUpdatedAt !== undefined
+                  ? { lastInboundUpdatedAt: String(inboundUpdatedAt) }
+                  : {}),
+                ...(eventKey ? { lastInboundEventId: eventKey } : {}),
+              }),
             },
           ]
         : [],
     });
 
-    if (payload.eventId) {
+    if (eventKey) {
       const lastEvent = incident.timeline[incident.timeline.length - 1];
       if (lastEvent) {
         lastEvent.correlationKeys = Array.from(
           new Set([
             ...(lastEvent.correlationKeys || []),
             `${system}:${externalId}`,
-            `event:${payload.eventId}`,
+            ...(inboundUpdatedAt !== undefined ? [`updatedAt:${inboundUpdatedAt}`] : []),
+            `event:${eventKey}`,
           ]),
         );
       }
