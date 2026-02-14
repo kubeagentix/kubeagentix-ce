@@ -21,6 +21,17 @@ KubeAgentiX CE is an open-source Kubernetes diagnostics copilot focused on one c
 
 It helps operators and developers diagnose Kubernetes incidents faster using explainable evidence from cluster data (events, logs, status, metrics) while preserving execution safety with policy-guarded command routing.
 
+## UI Gallery
+
+<div align="center">
+  <img src="docs-site/static/img/gallery/home-screen.png" alt="KubeAgentiX CE home screen" width="49%" />
+  <img src="docs-site/static/img/gallery/cluster-overview.png" alt="Cluster Overview dashboard" width="49%" />
+</div>
+<div align="center">
+  <img src="docs-site/static/img/gallery/quick-diagnosis.png" alt="Quick Diagnosis flow" width="49%" />
+  <img src="docs-site/static/img/gallery/terminal-nl-command-suggestion.png" alt="Terminal natural language command suggestion" width="49%" />
+</div>
+
 ## 1-Minute Setup
 
 ```bash
