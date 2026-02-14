@@ -41,3 +41,4 @@ The Dashboard shows an **Incident Inbox** panel with active incidents and quick 
 - Jira/Slack sync status is persisted on incident external refs (`pending`, `success`, `failed`).
 - If external sync fails, fix connector config and retry the same sync endpoint; failures are recoverable.
 - Graph enrichment can return warnings under partial cluster data, but incident workflow remains functional.
+- If observability connector is enabled, correlations will include observability-linked log/metric/trace signals.

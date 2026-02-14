@@ -23,6 +23,7 @@ const sidebars: SidebarsConfig = {
         'developers/spec-driven-development',
         'developers/incident-v1-roadmap',
         'developers/incident-v1-spec',
+        'developers/incident-observability-connectors',
         'developers/runtime-architecture',
         'developers/rca-engine',
         'developers/cli-first-agent-ops',

@@ -29,6 +29,10 @@ import type {
 import { getDiagnosisById } from "./rca";
 import { executeSkill } from "./skills";
 import { getCommandBroker } from "../commands/broker";
+import {
+  createIncidentObservabilityConnector,
+  IncidentObservabilityConnector,
+} from "./incidentObservability";
 
 const DEFAULT_DATA_DIR = path.join(process.cwd(), "data", "incidents");
 const INDEX_FILE = "index.json";
@@ -76,6 +80,7 @@ interface IncidentServiceOptions {
   commandExecute?: ReturnType<typeof getCommandBroker>["execute"];
   skillExecute?: typeof executeSkill;
   externalSyncAdapters?: Partial<Record<IncidentExternalSystem, IncidentExternalSyncAdapter>>;
+  observabilityConnector?: IncidentObservabilityConnector;
 }
 
 type IncidentExternalSyncMode = "mock" | "webhook" | "disabled";
@@ -297,6 +302,7 @@ export class IncidentService {
   private readonly commandExecute: ReturnType<typeof getCommandBroker>["execute"];
   private readonly skillExecute: typeof executeSkill;
   private readonly externalSyncAdapters: Record<IncidentExternalSystem, IncidentExternalSyncAdapter>;
+  private readonly observabilityConnector: IncidentObservabilityConnector;
   private readonly incidents = new Map<string, IncidentCase>();
   private initialized = false;
 
@@ -310,6 +316,7 @@ export class IncidentService {
       ...buildDefaultExternalSyncAdapters(this.now),
       ...(options.externalSyncAdapters || {}),
     };
+    this.observabilityConnector = options.observabilityConnector || createIncidentObservabilityConnector();
   }
 
   private normalizeIncident(incident: IncidentCase): IncidentCase {
@@ -1548,6 +1555,80 @@ export class IncidentService {
       });
     }
 
+    const includeObservability = payload.includeObservability !== false;
+    let observabilityAnomalyCount = 0;
+    if (includeObservability) {
+      try {
+        const observability = await this.observabilityConnector.enrich({
+          incident,
+          clusterContext,
+          now: this.now,
+        });
+        warnings.push(...observability.warnings);
+
+        for (const anomaly of observability.anomalies.slice(0, 120)) {
+          const observabilityEntity = addEntity({
+            id: buildEntityId("ObservabilitySignal", undefined, anomaly.id),
+            layer: "observability",
+            kind: `Observability${anomaly.signalType[0].toUpperCase()}${anomaly.signalType.slice(1)}`,
+            name: anomaly.id,
+            metadata: {
+              source: anomaly.source,
+              severity: anomaly.severity,
+              observedAt: String(anomaly.observedAt),
+              ...anomaly.metadata,
+            },
+          });
+          if (!observabilityEntity) continue;
+
+          const matchedEntityIds = new Set<string>();
+          for (const hint of anomaly.entityHints || []) {
+            const hintKind = (hint.kind || "").toLowerCase();
+            const hintName = (hint.name || "").toLowerCase();
+            const hintNamespace = (hint.namespace || "").toLowerCase();
+            for (const entity of entityMap.values()) {
+              if ((entity.kind || "").toLowerCase() !== hintKind) continue;
+              if ((entity.name || "").toLowerCase() !== hintName) continue;
+              if (hintNamespace && (entity.namespace || "").toLowerCase() !== hintNamespace) continue;
+              matchedEntityIds.add(entity.id);
+            }
+          }
+
+          const correlationEntityIds = Array.from(
+            new Set([observabilityEntity.id, ...matchedEntityIds]),
+          );
+
+          addCorrelation({
+            signalId: `observability:${anomaly.id}`,
+            entityIds: correlationEntityIds,
+            confidence: anomaly.confidence,
+            rationale: `${anomaly.signalType.toUpperCase()} anomaly (${anomaly.source}): ${anomaly.message}`,
+          });
+
+          for (const entityId of matchedEntityIds) {
+            addEdge({
+              id: `observability_detects_entity:${observabilityEntity.id}->${entityId}`,
+              fromEntityId: observabilityEntity.id,
+              toEntityId: entityId,
+              relationship: "observability_detects_entity",
+              layer: "observability",
+              confidence: anomaly.confidence,
+              rationale: `Observability connector linked ${anomaly.signalType} anomaly to entity`,
+              metadata: {
+                source: anomaly.source,
+              },
+            });
+          }
+
+          observabilityAnomalyCount += 1;
+        }
+      } catch (error) {
+        warnings.push(
+          `observability: ${error instanceof Error ? error.message : "connector failed"}`,
+        );
+      }
+    }
+
     incident.entities = Array.from(entityMap.values()).sort((a, b) =>
       `${a.layer}:${a.kind}:${a.name}`.localeCompare(`${b.layer}:${b.kind}:${b.name}`),
     );
@@ -1570,6 +1651,7 @@ export class IncidentService {
         edgeCount: incident.graphEdges.length,
         correlationCount: incident.correlations.length,
         warningCount: warnings.length,
+        observabilityAnomalyCount,
       },
       correlationKeys: [`incident:${incident.id}`, "graph:layered-v1"],
     });

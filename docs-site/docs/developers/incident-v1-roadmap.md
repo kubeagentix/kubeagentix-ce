@@ -40,7 +40,7 @@ Current status:
 - ✅ Phase 2 completed
 - ✅ Phase 3 completed
 - ✅ Phase 4 completed
-- ⏳ Phase 5 not started
+- ✅ Phase 5 completed
 
 ## Phase 0: Groundwork and Spec Governance
 
@@ -172,6 +172,14 @@ Scope:
 - Introduce connector interface and first observability adapter (logs/metrics/traces source).
 - Add correlation binding between observability anomalies and incident entities.
 - Keep connector contract extensible for cloud/security adapters.
+
+Implementation notes:
+
+- Added connector interface and first adapter implementation in `server/services/incidentObservability.ts`.
+- Integrated observability enrichment into `POST /api/incidents/:incidentId/investigate`.
+- Observability anomalies now create `observability` layer entities, graph edges, and correlations.
+- Added safe degradation behavior when connector is disabled/unavailable.
+- Added tests for connector-linked enrichment and failure-mode resilience.
 
 Exit criteria:
 

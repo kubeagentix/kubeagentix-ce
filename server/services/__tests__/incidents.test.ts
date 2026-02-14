@@ -3,6 +3,8 @@ import { mkdtemp, readFile, rm } from "fs/promises";
 import os from "os";
 import path from "path";
 import { IncidentService, IncidentServiceError } from "../incidents";
+import type { BrokerExecuteResponse } from "@shared/terminal";
+import type { IncidentObservabilityConnector } from "../incidentObservability";
 
 describe("IncidentService", () => {
   let tempDir: string;
@@ -31,6 +33,19 @@ describe("IncidentService", () => {
 
   afterEach(async () => {
     await rm(tempDir, { recursive: true, force: true });
+  });
+
+  const brokerResponse = (
+    stdout: string,
+    subcommand: string,
+  ): BrokerExecuteResponse => ({
+    stdout,
+    stderr: "",
+    exitCode: 0,
+    executedAt: 0,
+    durationMs: 1,
+    policyDecision: { allowed: true, family: "kubectl", subcommand },
+    truncated: false,
   });
 
   it("creates and lists incidents with persisted index", async () => {
@@ -449,6 +464,127 @@ describe("IncidentService", () => {
 
     expect(result.warnings.length).toBeGreaterThan(0);
     expect(result.summary.entityCount).toBeGreaterThan(0);
+    expect(result.incident.timeline.some((event) => event.type === "analysis")).toBe(true);
+  });
+
+  it("enriches incident with observability anomalies through connector interface", async () => {
+    const connector: IncidentObservabilityConnector = {
+      id: "test-observability",
+      name: "Test Observability",
+      enrich: vi.fn(async () => ({
+        connectorId: "test-observability",
+        warnings: [],
+        anomalies: [
+          {
+            id: "latency-spike-checkout",
+            signalType: "metric" as const,
+            severity: "high" as const,
+            message: "Latency p95 is above threshold",
+            confidence: 81,
+            observedAt: 1_700_000_000_300,
+            source: "test-observability",
+            entityHints: [{ kind: "Pod", name: "checkout-xyz", namespace: "prod" }],
+            metadata: { metricName: "http_server_latency_p95" },
+          },
+        ],
+      })),
+    };
+
+    const graphCommandExecute = async ({
+      command,
+    }: {
+      command: string;
+    }): Promise<BrokerExecuteResponse> => {
+      if (String(command).startsWith("kubectl auth can-i")) {
+        return brokerResponse("yes", "auth");
+      }
+      return brokerResponse("{\"items\":[]}", "get");
+    };
+
+    const graphService = new IncidentService({
+      dataDir: tempDir,
+      now,
+      diagnosisLookup,
+      commandExecute: graphCommandExecute,
+      skillExecute,
+      observabilityConnector: connector,
+    });
+
+    const incident = await graphService.createIncident({
+      title: "Observability link test",
+      entities: [
+        {
+          id: "pod/prod/checkout-xyz",
+          layer: "app",
+          kind: "Pod",
+          name: "checkout-xyz",
+          namespace: "prod",
+        },
+      ],
+    });
+
+    const result = await graphService.investigateIncident(incident.id, {
+      actor: "operator",
+      namespace: "prod",
+      includeObservability: true,
+    });
+
+    expect(connector.enrich).toHaveBeenCalledTimes(1);
+    expect(result.incident.entities.some((entity) => entity.layer === "observability")).toBe(true);
+    expect(result.incident.correlations.some((item) => item.signalId.startsWith("observability:"))).toBe(true);
+    expect(
+      result.incident.graphEdges.some((edge) => edge.relationship === "observability_detects_entity"),
+    ).toBe(true);
+  });
+
+  it("degrades safely when observability connector fails", async () => {
+    const connector: IncidentObservabilityConnector = {
+      id: "broken-observability",
+      name: "Broken Observability",
+      enrich: vi.fn(async () => {
+        throw new Error("connector unavailable");
+      }),
+    };
+
+    const graphCommandExecute = async ({
+      command,
+    }: {
+      command: string;
+    }): Promise<BrokerExecuteResponse> => {
+      if (String(command).startsWith("kubectl auth can-i")) {
+        return brokerResponse("yes", "auth");
+      }
+      return brokerResponse("{\"items\":[]}", "get");
+    };
+
+    const graphService = new IncidentService({
+      dataDir: tempDir,
+      now,
+      diagnosisLookup,
+      commandExecute: graphCommandExecute,
+      skillExecute,
+      observabilityConnector: connector,
+    });
+
+    const incident = await graphService.createIncident({
+      title: "Broken connector test",
+      entities: [
+        {
+          id: "pod/prod/checkout-xyz",
+          layer: "app",
+          kind: "Pod",
+          name: "checkout-xyz",
+          namespace: "prod",
+        },
+      ],
+    });
+
+    const result = await graphService.investigateIncident(incident.id, {
+      actor: "operator",
+      includeObservability: true,
+    });
+
+    expect(result.warnings.some((warning) => warning.includes("observability: connector unavailable"))).toBe(true);
     expect(result.incident.timeline.some((event) => event.type === "analysis")).toBe(true);
   });
 });

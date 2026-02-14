@@ -48,7 +48,8 @@ export type IncidentEdgeRelationship =
   | "pod_scheduled_on_node"
   | "networkpolicy_selects_pod"
   | "rolebinding_targets_serviceaccount"
-  | "clusterrolebinding_targets_serviceaccount";
+  | "clusterrolebinding_targets_serviceaccount"
+  | "observability_detects_entity";
 
 export interface IncidentGraphEdge {
   id: string;
@@ -265,6 +266,7 @@ export interface InvestigateIncidentRequest {
   clusterContext?: string;
   namespace?: string;
   maxEntities?: number;
+  includeObservability?: boolean;
 }
 
 export interface InvestigateIncidentResponse {

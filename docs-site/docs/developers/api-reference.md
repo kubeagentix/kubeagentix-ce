@@ -442,7 +442,8 @@ Request excerpt:
   "actor": "sre-oncall",
   "clusterContext": "prod-us-west",
   "namespace": "checkout",
-  "maxEntities": 200
+  "maxEntities": 200,
+  "includeObservability": true
 }
 ```
 
@@ -450,6 +451,10 @@ Response includes:
 - updated incident with `entities`, `graphEdges`, and `correlations`
 - summary counts (`entityCount`, `edgeCount`, `correlationCount`, `warningCount`)
 - warnings for partial-data/degraded paths (without hard failure)
+
+Observability enrichment:
+- When enabled, correlations may include `observability:*` signals.
+- Connector behavior is controlled by `INCIDENT_OBSERVABILITY_MODE`.
 
 ### `POST /api/incidents/:incidentId/sync/jira`
 ### `POST /api/incidents/:incidentId/sync/slack`

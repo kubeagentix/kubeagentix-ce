@@ -145,6 +145,8 @@ See `.env.example` for full set. Typical variables:
 - `INCIDENT_SLACK_BASE_URL` (optional, used for mock URL generation)
 - `INCIDENT_SYNC_TIMEOUT_MS` (default `8000`)
 - `INCIDENT_GRAPH_MODE` (`live|mock`, default `live`)
+- `INCIDENT_OBSERVABILITY_MODE` (`disabled|mock|file`, default `disabled`)
+- `INCIDENT_OBSERVABILITY_FILE` (JSON anomalies file path when mode is `file`)
 
 If no LLM keys are set, heuristic fallback paths remain available for core diagnosis/suggestion flows.
 
@@ -178,6 +180,9 @@ If no LLM keys are set, heuristic fallback paths remain available for core diagn
   and can be retried by calling the same sync endpoint again after fixing configuration.
 - Incident graph investigation is slow in local tests:
   Set `INCIDENT_GRAPH_MODE=mock` to bypass live kubectl graph enrichment.
+- Observability correlations not appearing:
+  Set `INCIDENT_OBSERVABILITY_MODE=mock` for local simulation, or `file` with
+  `INCIDENT_OBSERVABILITY_FILE` pointing to anomaly JSON.
 - Port already in use:
   Run with a different port:
   `PORT=4100 npx kubeagentix-ce@latest`

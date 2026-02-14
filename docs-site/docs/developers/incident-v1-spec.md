@@ -79,6 +79,15 @@ Kubernetes-first graph in v1:
 
 Observability connector follows as first non-K8s extension.
 
+Current implementation:
+
+- Connector interface: `IncidentObservabilityConnector`
+- Built-in modes: `disabled`, `mock`, `file`
+- Enrichment output maps to:
+  - `observability` layer entities
+  - `observability_detects_entity` graph edges
+  - confidence-backed `observability:*` correlations
+
 Extension points:
 
 - Add new graph edge relationships in shared incident contracts.
