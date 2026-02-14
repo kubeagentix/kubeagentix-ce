@@ -17,7 +17,13 @@ cp .env.example .env
 pnpm dev
 ```
 
-3. Run quality gates before opening a PR:
+3. Install repository git hooks:
+
+```bash
+pnpm hooks:install
+```
+
+4. Run quality gates before opening a PR:
 
 ```bash
 pnpm typecheck
@@ -34,6 +40,7 @@ pnpm --dir docs-site build
 - Update docs for user-visible changes.
 - Keep command execution paths safe and policy compliant.
 - Do not commit secrets or private keys.
+- Follow `AGENTS.md` program rules for phased epics (Incident v1 and future programs).
 
 ## Reporting Issues
 

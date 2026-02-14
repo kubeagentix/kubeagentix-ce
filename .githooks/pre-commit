@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+
+branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+
+case "$branch" in
+  codex/incident-v1|codex/incident-v1/*|incident/*)
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+
+staged_files="$(git diff --cached --name-only --diff-filter=ACMR)"
+[ -z "$staged_files" ] && exit 0
+
+if command -v rg >/dev/null 2>&1; then
+  code_changed="$(printf '%s\n' "$staged_files" | rg -n '^(client|server|shared|skills)/' || true)"
+  docs_changed="$(printf '%s\n' "$staged_files" | rg -n '^(docs-site/docs/|docs-site/sidebars\.ts|README\.md|CHANGELOG\.md|AGENTS\.md)' || true)"
+else
+  code_changed="$(printf '%s\n' "$staged_files" | grep -En '^(client|server|shared|skills)/' || true)"
+  docs_changed="$(printf '%s\n' "$staged_files" | grep -En '^(docs-site/docs/|docs-site/sidebars\.ts|README\.md|CHANGELOG\.md|AGENTS\.md)' || true)"
+fi
+
+if [ -z "$code_changed" ]; then
+  exit 0
+fi
+
+if [ -n "$docs_changed" ]; then
+  exit 0
+fi
+
+echo "ERROR: Incident branch code changes require docs updates."
+echo "Stage at least one docs file under docs-site/docs/ (or README/CHANGELOG/AGENTS)."
+exit 1
