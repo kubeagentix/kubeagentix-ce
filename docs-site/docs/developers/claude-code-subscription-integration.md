@@ -54,6 +54,50 @@ For environments where interactive login is not feasible:
 
 The provider normalizes auth env and can isolate config directory for token-based runs.
 
+## Docker/Compose Fixes and Launch Workflow
+
+This is the container-specific work we added so Claude Code subscription mode works reliably in Docker.
+
+### Docker/Compose-specific fixes implemented
+
+1. Runtime image now ships required CLIs:
+   - `kubectl` (fixes `spawn kubectl ENOENT`)
+   - `@anthropic-ai/claude-code` CLI
+   - Files: `Dockerfile`
+2. Compose mounts host auth/config paths into container:
+   - `${HOME}/.kube:/root/.kube:ro`
+   - `${HOME}/.claude:/root/.claude`
+   - `${HOME}/.claude.json:/root/.claude.json`
+   - File: `docker-compose.yml`
+3. Entrypoint copies kubeconfig to writable temp path and exports `KUBECONFIG`, then bridges localhost cluster endpoints via `socat` to `host.docker.internal` when `KUBEAGENTIX_PROXY_LOCALHOST_KUBECONFIG=true`.
+   - File: `docker/entrypoint.sh`
+4. `claude_code` auth path prefers subscription OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`) and avoids stale `ANTHROPIC_API_KEY` routing unless explicitly enabled.
+   - File: `server/agent/providers/claudeCode.ts`
+5. Quick Dx now uses the same request-scoped provider credential flow as Chat, so settings token behavior matches between both surfaces.
+   - File: `server/services/rca.ts`
+
+### Docker Compose launch sequence
+
+1. Prepare environment:
+
+```bash
+unset OPENAI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN GEMINI_API_KEY
+export ENABLE_CLAUDE_CODE_PROVIDER=true
+# Optional for headless/container auth:
+export CLAUDE_CODE_OAUTH_TOKEN='<your-claude-subscription-token>'
+```
+
+2. Launch:
+
+```bash
+docker compose down
+docker compose up --build
+```
+
+3. In app Settings, select `Claude Code (Subscription)` as preferred provider.
+4. If local Claude login is unavailable inside container, paste token in Settings or provide `CLAUDE_CODE_OAUTH_TOKEN` env.
+5. Verify by running Quick Dx and Chat and checking provider/model debug metadata.
+
 ## What We Implemented
 
 ## 1) Claude Code provider
@@ -98,13 +142,12 @@ Two separate issues were fixed.
 
 Problem:
 
-- RCA path registered request-scoped provider into shared singleton engine.
-- A bad token could leak into later requests.
+- RCA had an isolated provider path that diverged from Chat behavior, which could cause credential mismatch and unexpected fallback.
 
 Fix:
 
-- Use a request-scoped `AgentEngine` only when explicit request credentials are supplied.
-- Do not mutate global singleton provider map with transient credentials.
+- Keep shared engine usage, but pass request-scoped `apiKey/authToken` through `modelPreferences`.
+- Let `AgentEngine.resolveProvider(...)` create transient provider instances per request without mutating global provider state.
 
 File: `server/services/rca.ts`
 
