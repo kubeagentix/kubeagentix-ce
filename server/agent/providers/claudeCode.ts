@@ -440,6 +440,7 @@ export class ClaudeCodeProvider implements LLMProvider {
 
   private buildEnv(): NodeJS.ProcessEnv {
     const env = { ...process.env };
+    const allowExternalApiKey = parseBoolean(env.CLAUDE_CODE_ALLOW_API_KEY, false);
     const overrideToken = normalizeAuthToken(this.authTokenOverride);
     const envClaudeCodeOAuthToken = normalizeAuthToken(env.CLAUDE_CODE_OAUTH_TOKEN);
     const envClaudeCodeToken = normalizeAuthToken(env.CLAUDE_CODE_AUTH_TOKEN);
@@ -449,11 +450,13 @@ export class ClaudeCodeProvider implements LLMProvider {
     if (overrideToken) {
       // Claude Code subscription tokens should be passed via CLAUDE_CODE_OAUTH_TOKEN.
       // Keep CLAUDE_CODE_AUTH_TOKEN as legacy alias for backward compatibility.
-      if (isAnthropicApiKey(overrideToken)) {
+      if (allowExternalApiKey && isAnthropicApiKey(overrideToken)) {
         env.ANTHROPIC_API_KEY = overrideToken;
       } else {
         env.CLAUDE_CODE_OAUTH_TOKEN = overrideToken;
         env.CLAUDE_CODE_AUTH_TOKEN = overrideToken;
+        // Force OAuth-token mode for Claude Code and avoid stale external API-key path.
+        delete env.ANTHROPIC_API_KEY;
       }
     } else {
       if (envClaudeCodeOAuthToken) {
@@ -476,6 +479,7 @@ export class ClaudeCodeProvider implements LLMProvider {
         }
       }
       if (
+        allowExternalApiKey &&
         !env.ANTHROPIC_API_KEY &&
         envClaudeCodeToken &&
         isAnthropicApiKey(envClaudeCodeToken)
@@ -483,6 +487,7 @@ export class ClaudeCodeProvider implements LLMProvider {
         env.ANTHROPIC_API_KEY = envClaudeCodeToken;
       }
       if (
+        allowExternalApiKey &&
         !env.ANTHROPIC_API_KEY &&
         envAnthropicToken &&
         isAnthropicApiKey(envAnthropicToken)
@@ -495,6 +500,13 @@ export class ClaudeCodeProvider implements LLMProvider {
     // which can force an unsupported auth path.
     if (env.CLAUDE_CODE_OAUTH_TOKEN) {
       delete env.ANTHROPIC_AUTH_TOKEN;
+      // Prefer subscription OAuth path when explicitly provided.
+      delete env.ANTHROPIC_API_KEY;
+    }
+
+    if (!allowExternalApiKey) {
+      // Subscription mode should not accidentally route through external API-key auth.
+      delete env.ANTHROPIC_API_KEY;
     }
 
     // Ensure at least one valid auth signal is present if we were given a usable token.
@@ -680,6 +692,10 @@ export class ClaudeCodeProvider implements LLMProvider {
         return "Provided Claude auth token was rejected. Verify the token is valid/non-expired and use it as `CLAUDE_CODE_OAUTH_TOKEN` (or paste it in Settings) for Docker/headless usage.";
       }
       return "Claude Code is not authenticated. Run `claude /login` in this runtime, or set `CLAUDE_CODE_OAUTH_TOKEN` (subscription token) / `ANTHROPIC_API_KEY` for headless Docker usage.";
+    }
+
+    if (lower.includes("invalid api key") || lower.includes("fix external api key")) {
+      return "Claude Code received an invalid external API key. `claude_code` expects subscription auth. Use `CLAUDE_CODE_OAUTH_TOKEN` (or Settings token), or switch to `claude` provider for API-key auth.";
     }
 
     if (lower.includes("oauth authentication is currently not supported")) {

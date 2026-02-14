@@ -306,35 +306,10 @@ async function runAgenticRcaAnalysis(params: {
   modelPreferences?: RcaDiagnoseRequest["modelPreferences"];
 }): Promise<{ output: AgenticRcaOutput | null; error?: string; debug?: AgenticRunDebug }> {
   const sharedEngine: AgentEngine = getAgentEngine();
-  let scopedEngine: AgentEngine | undefined;
   const selectedProviderId = params.modelPreferences?.providerId;
   const selectedApiKey = params.modelPreferences?.apiKey;
   const selectedAuthToken = params.modelPreferences?.authToken;
   const selectedModel = params.modelPreferences?.model;
-  const hasRequestScopedCredentials =
-    !!selectedProviderId && !!(selectedApiKey || selectedAuthToken);
-
-  if (hasRequestScopedCredentials) {
-    try {
-      const transientProvider = createProvider(
-        selectedProviderId,
-        selectedApiKey,
-        selectedAuthToken,
-      );
-      // Avoid mutating the shared singleton engine with request-scoped credentials.
-      // This prevents stale/invalid tokens from leaking into subsequent requests.
-      scopedEngine = new AgentEngine();
-      scopedEngine.registerProvider(transientProvider);
-    } catch (error) {
-      return {
-        output: null,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to initialize selected provider",
-      };
-    }
-  }
 
   const promptVariants = [
     {
@@ -352,26 +327,39 @@ async function runAgenticRcaAnalysis(params: {
   const errors: string[] = [];
   const requestProfiles: Array<{
     label: string;
-    engine: AgentEngine;
     providerId?: string;
     model?: string;
+    apiKey?: string;
+    authToken?: string;
   }> = [];
 
   if (selectedProviderId) {
+    if (selectedApiKey || selectedAuthToken) {
+      try {
+        createProvider(selectedProviderId, selectedApiKey, selectedAuthToken);
+      } catch (error) {
+        return {
+          output: null,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to initialize selected provider",
+        };
+      }
+    }
     requestProfiles.push({
       label: "selected",
-      engine: scopedEngine || sharedEngine,
       providerId: selectedProviderId,
       model: selectedModel,
+      apiKey: selectedApiKey,
+      authToken: selectedAuthToken,
     });
     requestProfiles.push({
       label: "fallback",
-      engine: sharedEngine,
     });
   } else {
     requestProfiles.push({
       label: "",
-      engine: sharedEngine,
     });
   }
 
@@ -418,6 +406,8 @@ async function runAgenticRcaAnalysis(params: {
         modelPreferences: {
           providerId: profile.providerId,
           model: profile.model,
+          apiKey: profile.apiKey,
+          authToken: profile.authToken,
           temperature: 0.1,
           maxTokens: 1200,
           useExtendedThinking: false,
@@ -428,7 +418,7 @@ async function runAgenticRcaAnalysis(params: {
       let error: string | undefined;
       let debug: AgenticRunDebug | undefined;
 
-      for await (const chunk of profile.engine.processRequest(request)) {
+      for await (const chunk of sharedEngine.processRequest(request)) {
         if (chunk.type === "text" && chunk.text) {
           text += chunk.text;
         }

@@ -18,12 +18,14 @@ describe("ClaudeCodeProvider auth env normalization", () => {
   });
 
   it("sets both auth env vars when override token is provided", () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-stale";
     const provider = new ClaudeCodeProvider(undefined, "authToken:token-123");
     const env = (provider as any).buildEnv() as NodeJS.ProcessEnv;
 
     expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("token-123");
     expect(env.CLAUDE_CODE_AUTH_TOKEN).toBe("token-123");
     expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
   });
 
   it("normalizes quoted override tokens", () => {
@@ -55,7 +57,17 @@ describe("ClaudeCodeProvider auth env normalization", () => {
     expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
 
-  it("maps sk-ant token override to ANTHROPIC_API_KEY", () => {
+  it("treats sk-ant token override as OAuth token by default", () => {
+    const provider = new ClaudeCodeProvider(undefined, "sk-ant-test123");
+    const env = (provider as any).buildEnv() as NodeJS.ProcessEnv;
+
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("sk-ant-test123");
+    expect(env.CLAUDE_CODE_AUTH_TOKEN).toBe("sk-ant-test123");
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  it("allows explicit external API key mode when CLAUDE_CODE_ALLOW_API_KEY=true", () => {
+    process.env.CLAUDE_CODE_ALLOW_API_KEY = "true";
     const provider = new ClaudeCodeProvider(undefined, "sk-ant-test123");
     const env = (provider as any).buildEnv() as NodeJS.ProcessEnv;
 
