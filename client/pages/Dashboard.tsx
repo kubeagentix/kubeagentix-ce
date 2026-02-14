@@ -9,9 +9,11 @@ import { Zap, BarChart3, BookOpen } from "lucide-react";
 import { useKubernetesData } from "@/hooks/useKubernetesData";
 import { useMetrics } from "@/hooks/useMetrics";
 import { useNavigate } from "react-router-dom";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import type { KubernetesResource } from "@/hooks/useKubernetesData";
 import { useWorkspaceScope } from "@/lib/workspaceScope";
+import { useIncidents } from "@/hooks/useIncidents";
+import type { IncidentSummary } from "@shared/incident";
 
 function correlation(left: number[], right: number[]): number {
   if (!left.length || left.length !== right.length) return 0;
@@ -50,6 +52,8 @@ export default function Dashboard() {
     scope.clusterContext,
   );
   const { metrics } = useMetrics(effectiveNamespace, scope.clusterContext);
+  const { listIncidents } = useIncidents();
+  const [incidents, setIncidents] = useState<IncidentSummary[]>([]);
 
   const runningPods = resources.filter((r) => r.status === "running").length;
   const totalPods = metrics?.podCount || resources.length;
@@ -121,6 +125,38 @@ export default function Dashboard() {
 
   const diagnosisTarget =
     selectedResource || resources.find((resource) => resource.status !== "running") || resources[0];
+  const openIncidents = useMemo(
+    () =>
+      incidents.filter(
+        (incident) => !["resolved", "postmortem"].includes(incident.status),
+      ),
+    [incidents],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadIncidents = async () => {
+      try {
+        const result = await listIncidents({ limit: 8 });
+        if (!cancelled) {
+          setIncidents(result.items);
+        }
+      } catch {
+        if (!cancelled) {
+          setIncidents([]);
+        }
+      }
+    };
+
+    void loadIncidents();
+    const timer = setInterval(() => void loadIncidents(), 30000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [listIncidents]);
 
   const navigateToDiagnosis = () => {
     if (!diagnosisTarget) return;
@@ -195,8 +231,44 @@ export default function Dashboard() {
             />
           </div>
 
-          <div>
+          <div className="space-y-6">
             <EventsFeed events={events} />
+
+            <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-semibold text-white">Incident Inbox</h3>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                  onClick={() => navigate("/incident")}
+                >
+                  Open
+                </Button>
+              </div>
+              <div className="text-xs text-zinc-400 mb-3">
+                {openIncidents.length} open incident{openIncidents.length === 1 ? "" : "s"}
+              </div>
+              <div className="space-y-2">
+                {openIncidents.slice(0, 5).map((incident) => (
+                  <button
+                    key={incident.id}
+                    className="w-full text-left rounded border border-zinc-700 bg-zinc-800/40 px-3 py-2 hover:border-zinc-500"
+                    onClick={() =>
+                      navigate(`/incident?incidentId=${encodeURIComponent(incident.id)}`)
+                    }
+                  >
+                    <div className="text-sm text-zinc-200 font-medium">{incident.title}</div>
+                    <div className="text-xs text-zinc-400 mt-1">
+                      {incident.severity} • {incident.status}
+                    </div>
+                  </button>
+                ))}
+                {openIncidents.length === 0 && (
+                  <div className="text-sm text-zinc-500">No active incidents.</div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 

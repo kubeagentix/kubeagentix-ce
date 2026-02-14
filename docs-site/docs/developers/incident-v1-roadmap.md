@@ -33,6 +33,15 @@ This roadmap follows spec-driven development with phase-gated delivery and expli
 
 ## Phase Plan
 
+Current status:
+
+- ✅ Phase 0 completed
+- ✅ Phase 1 completed
+- 🚧 Phase 2 in progress
+- ⏳ Phase 3 not started
+- ⏳ Phase 4 not started
+- ⏳ Phase 5 not started
+
 ## Phase 0: Groundwork and Spec Governance
 
 Scope:
@@ -91,6 +100,12 @@ Scope:
 - Add action panel with approve/execute flow and output history.
 - Update QuickDx CTA from view-only to create/link incident.
 - Dashboard incident cards read from incident APIs.
+
+Implementation notes:
+
+- Incident page now supports manual incident creation, inbox selection, timeline rendering, and action proposal/approve/execute flow.
+- QuickDx now supports incident promotion via create + diagnosis attach and deep-links to the created incident.
+- Dashboard now surfaces active incidents and direct navigation into the incident inbox.
 
 Exit criteria:
 

@@ -6,6 +6,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { useKubernetesData } from "@/hooks/useKubernetesData";
 import { useRcaDiagnosis } from "@/hooks/useRcaDiagnosis";
 import { useWorkspaceScope } from "@/lib/workspaceScope";
+import { useIncidents } from "@/hooks/useIncidents";
 
 const SeverityIcon = ({
   score,
@@ -42,10 +43,13 @@ export default function QuickDx() {
     scope.clusterContext,
   );
   const { diagnosis, loading, error, diagnose } = useRcaDiagnosis();
+  const { createIncident, attachDiagnosis } = useIncidents();
 
   const [selectedName, setSelectedName] = useState(initialName);
   const [selectedNamespace, setSelectedNamespace] = useState(initialNamespace);
   const [selectedKind, setSelectedKind] = useState(initialKind);
+  const [creatingIncident, setCreatingIncident] = useState(false);
+  const [incidentError, setIncidentError] = useState<string | null>(null);
 
   const resourceOptions = useMemo(
     () => resources.map((resource) => ({
@@ -101,6 +105,47 @@ export default function QuickDx() {
     });
   };
 
+  const handleCreateIncident = async () => {
+    if (!diagnosis || creatingIncident) return;
+
+    try {
+      setIncidentError(null);
+      setCreatingIncident(true);
+
+      const created = await createIncident({
+        title: `${diagnosis.resource.kind}/${diagnosis.resource.name} degradation`,
+        description: diagnosis.probableRootCause,
+        severity: topConfidence >= 85 ? "critical" : topConfidence >= 65 ? "high" : "medium",
+        source: "quickdx",
+        actor: "quickdx",
+        services: [
+          diagnosis.resource.name.split("-").slice(0, -1).join("-") || diagnosis.resource.name,
+        ],
+        entities: [
+          {
+            id: `${diagnosis.resource.kind.toLowerCase()}/${diagnosis.resource.namespace}/${diagnosis.resource.name}`,
+            layer: "app",
+            kind: diagnosis.resource.kind,
+            name: diagnosis.resource.name,
+            namespace: diagnosis.resource.namespace,
+          },
+        ],
+      });
+
+      const updated = await attachDiagnosis(created.id, {
+        diagnosisId: diagnosis.diagnosisId,
+        attachedBy: "quickdx",
+        note: "Promoted from QuickDx",
+      });
+
+      navigate(`/incident?incidentId=${encodeURIComponent(updated.id)}`);
+    } catch (err) {
+      setIncidentError(err instanceof Error ? err.message : "Failed to create incident from diagnosis");
+    } finally {
+      setCreatingIncident(false);
+    }
+  };
+
   const topConfidence = diagnosis?.hypotheses?.[0]?.confidence || 0;
   const isHealthyDiagnosis = diagnosis?.hypotheses?.[0]?.id === "healthy-running";
   const showProviderDebug = import.meta.env.VITE_SHOW_PROVIDER_DEBUG !== "false";
@@ -116,6 +161,11 @@ export default function QuickDx() {
         {error && (
           <div className="mb-4 rounded border border-red-800 bg-red-950/40 px-4 py-3 text-red-200">
             {error}
+          </div>
+        )}
+        {incidentError && (
+          <div className="mb-4 rounded border border-red-800 bg-red-950/40 px-4 py-3 text-red-200">
+            {incidentError}
           </div>
         )}
 
@@ -356,12 +406,11 @@ export default function QuickDx() {
                 <Button
                   variant="outline"
                   className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-                  onClick={() =>
-                    navigate(`/incident?diagnosisId=${encodeURIComponent(diagnosis.diagnosisId)}`)
-                  }
+                  onClick={() => void handleCreateIncident()}
+                  disabled={creatingIncident}
                 >
                   <ExternalLink className="w-4 h-4 mr-2" />
-                  View Incident Timeline
+                  {creatingIncident ? "Creating Incident..." : "Create / Link Incident"}
                 </Button>
               </div>
             </div>

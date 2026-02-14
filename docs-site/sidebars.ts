@@ -9,6 +9,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'users/quickstart',
         'users/guided-rca',
+        'users/incidents',
         'users/skills-runbooks',
         'users/terminal-natural-language',
       ],
