@@ -24,6 +24,27 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - TLS and connectivity failures for localhost-backed kubeconfig endpoints from containerized runtime.
 - Anthropic auth resolution failures caused by empty-string `ANTHROPIC_API_KEY` env values in compose environments.
 
+## [0.5.0] - 2026-02-14
+
+### Added
+- Incident v1 service/system case workflow with file-backed persistence and inbox/detail APIs.
+- Incident action workflow with explicit approve-before-execute safety gate.
+- QuickDx-to-Incident promotion and diagnosis linking flow.
+- Jira and Slack hybrid system-of-record sync with inbound webhook reconciliation.
+- Layered incident investigation graph across edge, app, platform, network policy, and RBAC evidence.
+- Observability connector abstraction (`disabled|mock|file`) with anomaly-to-entity correlation enrichment.
+- Incident user/developer documentation, API reference updates, and phased roadmap/spec artifacts.
+
+### Changed
+- Incident route now serves live inbox and case timeline flows instead of placeholder content.
+- Dashboard incident surfaces now use live incident API data.
+- Incident investigation endpoint now supports optional observability enrichment controls.
+
+### Fixed
+- Incident action execution now consistently blocks unapproved actions across API and UI flows.
+- Incident ingestion and external sync pathways now handle idempotency and stale update suppression.
+- Layered investigation now degrades safely on partial Kubernetes command failures without hard-failing incident workflows.
+
 ## [0.3.0] - 2026-02-10
 
 ### Added
