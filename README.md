@@ -162,6 +162,21 @@ If no LLM keys are set, heuristic fallback paths remain available for core diagn
   If your kubeconfig uses `localhost`/`127.0.0.1`, keep
   `KUBEAGENTIX_PROXY_LOCALHOST_KUBECONFIG=true` (default) so the container can
   bridge localhost ports to the host endpoint.
+- Docker + kind cluster on Linux:
+  kind binds the API server to `127.0.0.1` by default. Inside Docker,
+  `host.docker.internal` resolves to the Docker bridge gateway (`172.17.0.1`),
+  not the host loopback — so the localhost bridge above won't reach it.
+  Fix: recreate the cluster with `apiServerAddress` set to the Docker bridge IP:
+  ```bash
+  kind delete cluster
+  kind create cluster --config - <<'EOF'
+  kind: Cluster
+  apiVersion: kind.x-k8s.io/v1alpha4
+  networking:
+    apiServerAddress: "172.17.0.1"
+  EOF
+  ```
+  This makes the API server reachable from both the host and inside any Docker container.
 - Claude SDK bridge disabled:
   Set `ENABLE_CLAUDE_SDK_BRIDGE=true`, then use:
   `POST /api/claude-sdk/sessions` and connect browser websocket to
